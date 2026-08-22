@@ -1,0 +1,8 @@
+# Chế độ phòng thủ: bật các guard (logic thật sẽ bổ sung dần ở Phase 9+).
+security:
+  defense_enabled: true
+  input_guard: true
+  retrieval_guard: true
+  output_guard: true
+  min_trust_level: 0.5
+  verify_content_hash: true
