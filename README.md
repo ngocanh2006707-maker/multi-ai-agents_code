@@ -61,7 +61,7 @@ python scripts_test_phase3.py
 Script này chỉ kiểm tra Planner phân route và plan. Worker vẫn được giả lập
 cố ý để test Phase 3 độc lập.
 
-## 3. Build Knowledge Base Phase 4
+## 3. Knowledge Base Phase 4
 
 Project có sẵn file nhỏ để kiểm thử pipeline:
 
@@ -72,7 +72,12 @@ data/raw/seed_documents.jsonl
 Đây chỉ là **seed data cho baseline**, không phải Knowledge Base nghiên cứu
 chính thức. Khi có KB thật, thay bằng file JSONL của bạn.
 
-Build/index lần đầu:
+Repo đã bao gồm Chroma vector database dựng sẵn tại `data/vector_db/`, vì vậy
+sau khi clone có thể chạy retrieval ngay mà không cần build lại index. API key
+không được commit; mỗi người vẫn phải copy `.env.example` thành `.env` và dùng
+key riêng.
+
+Chỉ build/index lại khi thay đổi dữ liệu nguồn hoặc embedding model:
 
 ```bash
 python scripts_build_kb.py --reset

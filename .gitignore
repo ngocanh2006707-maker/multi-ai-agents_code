@@ -4,7 +4,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
-data/vector_db/
+# Commit Chroma DB so a fresh clone can run the coursework immediately.
 data/results/
 tracing/logs/
 artifacts/
