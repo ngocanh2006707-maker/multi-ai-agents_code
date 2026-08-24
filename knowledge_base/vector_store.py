@@ -78,10 +78,19 @@ def _validate_embedding_fingerprint(
     if not collection.count() and (
         missing_fingerprint or stored_dimension is None
     ):
+        # Chroma treats HNSW configuration keys as immutable. Passing an
+        # existing ``hnsw:space`` back to ``modify`` is interpreted as an
+        # attempt to change the distance function and fails even when the
+        # value is unchanged. Only update ordinary collection metadata here;
+        # the cosine configuration set at collection creation remains intact.
+        mutable_metadata = {
+            key: value
+            for key, value in metadata.items()
+            if not key.startswith("hnsw:")
+        }
         collection.modify(
             metadata={
-                **metadata,
-                "hnsw:space": metadata.get("hnsw:space", "cosine"),
+                **mutable_metadata,
                 **expected,
                 "embedding_dimension": dimension,
             }

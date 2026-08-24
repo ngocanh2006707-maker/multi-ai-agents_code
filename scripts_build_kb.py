@@ -45,12 +45,15 @@ def main():
     if not chunks:
         raise ValueError("Không tạo được chunk nào từ input")
 
-    if args.reset:
-        reset_vector_store()
-
     print(f"Documents/chunks chuẩn bị index: {len(chunks)} chunks")
     print("Đang tạo embeddings bằng model đã cấu hình trong .env ...")
     vectors = embed_documents([chunk["content"] for chunk in chunks])
+
+    # Chỉ xóa collection cũ sau khi embeddings đã tạo thành công. Nếu provider
+    # lỗi, hết quota hoặc local model không load được, KB hiện tại vẫn được giữ.
+    if args.reset:
+        reset_vector_store()
+
     written = upsert_chunks(chunks, vectors)
 
     print(f"Đã upsert: {written} chunks")

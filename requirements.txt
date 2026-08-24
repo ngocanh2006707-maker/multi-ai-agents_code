@@ -14,8 +14,8 @@ langchain-google-genai>=4.0.0
 chromadb>=0.5.0
 
 # --- Optional local embeddings ---
-# langchain-huggingface>=0.1.0
-# sentence-transformers>=3.0.0
+langchain-huggingface>=0.1.0
+sentence-transformers>=3.0.0
 
 # --- Config & validation ---
 python-dotenv>=1.0.0

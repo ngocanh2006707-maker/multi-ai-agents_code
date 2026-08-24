@@ -16,7 +16,7 @@ Data/Knowledge Poisoning.
 - [x] Phase 4 — Knowledge Base tối thiểu + Research Agent
   - Validation + cleaning
   - Chunking
-  - Google Gemini Embedding
+  - Local embedding bằng `BAAI/bge-m3`
   - Chroma persistent vector database
   - Semantic retrieval
   - Trust-aware reranking
@@ -38,19 +38,27 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Sau đó mở `.env` và chỉ cần điền API key của Google AI Studio:
+Sau đó cài thêm dependency cho local embedding:
+
+```bash
+pip install langchain-huggingface sentence-transformers
+```
+
+Mở `.env`, điền API key Google AI Studio cho LLM và cấu hình BGE-M3 cho
+embedding:
 
 ```env
 MODEL_PROVIDER=google
 MODEL_NAME=gemini-3.1-flash-lite
 API_KEY=YOUR_GOOGLE_AI_API_KEY
 
-EMBEDDING_PROVIDER=google
-EMBEDDING_MODEL=gemini-embedding-2
-EMBEDDING_API_KEY=
+EMBEDDING_PROVIDER=local
+EMBEDDING_MODEL=BAAI/bge-m3
 ```
 
-`EMBEDDING_API_KEY` để trống thì Phase 4 tự dùng lại `API_KEY`.
+`API_KEY` chỉ dùng cho LLM. BGE-M3 chạy local và không dùng Gemini embedding
+quota. Lần đầu load model, `sentence-transformers` sẽ tự tải trọng số BGE-M3 về
+cache của máy; không commit trọng số model vào repository.
 
 ## 2. Test riêng Phase 3
 
@@ -63,45 +71,84 @@ cố ý để test Phase 3 độc lập.
 
 ## 3. Knowledge Base Phase 4
 
-Project có sẵn file nhỏ để kiểm thử pipeline:
+Nguồn KB hiện tại đã được chuẩn hóa và gộp tại:
+
+```text
+data/raw/combined_documents.jsonl
+```
+
+File này gồm 15 document: 6 seed baseline và 9 tài liệu nghiên cứu. Với cấu
+hình mặc định `chunk_size=900`, `overlap=120`, ingestion tạo 652 chunk.
+
+Project vẫn giữ file seed nhỏ để kiểm thử pipeline độc lập:
 
 ```text
 data/raw/seed_documents.jsonl
 ```
 
-Đây chỉ là **seed data cho baseline**, không phải Knowledge Base nghiên cứu
-chính thức. Khi có KB thật, thay bằng file JSONL của bạn.
+Đây chỉ là **seed data cho baseline**. Khi build KB đầy đủ, luôn dùng
+`combined_documents.jsonl` để không làm mất các tài liệu đã gộp.
 
-Repo đã bao gồm Chroma vector database dựng sẵn tại `data/vector_db/`, vì vậy
-sau khi clone có thể chạy retrieval ngay mà không cần build lại index. API key
-không được commit; mỗi người vẫn phải copy `.env.example` thành `.env` và dùng
-key riêng.
+Chroma lưu vector tại `data/vector_db/`. Vector tài liệu có thể được chia sẻ dưới
+dạng snapshot, nhưng mỗi máy vẫn cần BGE-M3 để tạo embedding cho câu hỏi mới.
+Không dùng Gemini hoặc embedding model khác để truy vấn snapshot BGE-M3 vì các
+model không cùng không gian vector.
 
-Chỉ build/index lại khi thay đổi dữ liệu nguồn hoặc embedding model:
+Trước khi build toàn bộ KB, test model bằng một query nhỏ:
 
 ```bash
-python scripts_build_kb.py --reset
+python -c "from dotenv import load_dotenv; load_dotenv(); from knowledge_base.embeddings import embed_query; v=embed_query('Kiểm tra prompt injection'); print('dimension:', len(v))"
 ```
+
+Với BGE-M3, kết quả mong đợi là vector 1024 chiều. Sau khi test thành công,
+build/index toàn bộ KB:
+
+```bash
+python scripts_build_kb.py --input data/raw/combined_documents.jsonl --chunk-size 900 --overlap 120 --reset
+```
+
+`--reset` xóa collection hiện tại trước khi ghi index mới. Chỉ dùng tùy chọn này
+khi file đầu vào chứa toàn bộ KB cần giữ hoặc khi đổi embedding model. Không trộn
+vector BGE-M3 với vector Gemini trong cùng collection.
 
 Pipeline đang chạy:
 
 ```text
 JSONL Document
-    ↓
-Validation
-    ↓
-Cleaning
-    ↓
-Chunking
-    ↓
-Gemini Embedding
-    ↓
-Chroma Index
-    ↓
+    ↓ Validation + cleaning
+Normalized Document
+    ↓ chunk_size=900, overlap=120
+652 Chunks
+    ↓ BAAI/bge-m3 chạy local
+1024-dimensional Vectors
+    ↓ Chroma upsert
 data/vector_db/
 ```
 
-Muốn build file khác:
+Chunking chia tài liệu dài thành các đoạn nhỏ có phần chồng lấn để không mất ngữ
+cảnh tại ranh giới. Embedding biến từng chunk thành vector số; retrieval biến câu
+hỏi bằng cùng model rồi tìm các vector gần nhất theo cosine similarity.
+
+Kiểm tra số vector sau khi build:
+
+```bash
+python -c "from dotenv import load_dotenv; load_dotenv(); from knowledge_base.vector_store import collection_count; print('Số vector:', collection_count())"
+```
+
+Kết quả mong đợi:
+
+```text
+Số vector: 652
+```
+
+Thử semantic retrieval:
+
+```bash
+python -c "from dotenv import load_dotenv; load_dotenv(); from knowledge_base.retrieval import search; import pprint; pprint.pp(search('Cách phòng chống prompt injection', top_k=3))"
+```
+
+Chỉ build một file khác khi chủ động tạo collection mới hoặc thay toàn bộ nguồn
+dữ liệu:
 
 ```bash
 python scripts_build_kb.py --input data/raw/my_documents.jsonl --reset
@@ -127,6 +174,33 @@ Schema document tối thiểu:
 
 `content_hash` không bắt buộc trong file đầu vào: ingestion sẽ tự tính nếu
 chưa có.
+
+### Chia sẻ vector database
+
+`data/vector_db/` chứa SQLite và các file index nhị phân. Không sao chép thư mục
+này trong lúc ứng dụng hoặc tiến trình build đang ghi dữ liệu. Với coursework
+nhỏ có thể commit snapshot, nhưng GitHub Release hoặc Git LFS phù hợp hơn Git
+thường vì các file nhị phân thay đổi toàn khối.
+
+Người nhận snapshot không cần embedding lại tài liệu, nhưng vẫn phải:
+
+1. Cài `langchain-huggingface` và `sentence-transformers`.
+2. Cấu hình `EMBEDDING_PROVIDER=local` và `EMBEDDING_MODEL=BAAI/bge-m3`.
+3. Tải BGE-M3 ở lần truy vấn đầu tiên để embedding câu hỏi.
+4. Dùng phiên bản Chroma tương thích với phiên bản đã tạo snapshot.
+
+Nên phát hành cùng snapshot các file sau:
+
+```text
+data/raw/combined_documents.jsonl  # nguồn có thể rebuild
+data/vector_db/                    # snapshot đã embedding
+.env.example                       # cấu hình không chứa secret
+requirements.txt                   # dependency được pin khi release
+```
+
+Nếu thay model hoặc revision model, phải rebuild toàn bộ collection. Tên model,
+provider và dimension được lưu làm embedding fingerprint để ngăn trộn vector
+không tương thích.
 
 ## 4. Test Phase 4
 
@@ -195,7 +269,7 @@ Agent**, tránh lộ ground truth trong thí nghiệm poisoning.
 knowledge_base/
 ├── ingestion.py       # validate, clean, đọc JSONL
 ├── chunking.py        # chia chunk + content hash
-├── embeddings.py      # Google Gemini Embedding
+├── embeddings.py      # BGE-M3 local hoặc Google embedding theo cấu hình
 ├── vector_store.py    # Chroma persistent DB
 └── retrieval.py       # semantic search + trust reranking
 
