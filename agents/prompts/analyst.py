@@ -24,6 +24,10 @@ Quy tắc bắt buộc:
 9. Mọi kết luận phải trích đúng document_id hoặc context_id trong evidence_document_ids.
 10. Chỉ ghi mâu thuẫn khi có ít nhất hai document_id khác nhau và chỉ rõ từng claim.
 11. Nếu câu hỏi yêu cầu so sánh, comparison phải có đủ các biện pháp được hỏi.
+12. Chỉ đặt document_id/context_id trong các field evidence_document_ids hoặc document_ids.
+    Không nhắc tên nguồn, tên tài liệu, ID, URL hay chép nguyên văn tài liệu trong các field
+    hiển thị cho người dùng như summary, purpose, strengths, weaknesses, suitable_for,
+    claim_a, claim_b, explanation và recommendation; hãy tổng hợp và diễn đạt lại.
 """
 
 

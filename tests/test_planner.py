@@ -9,7 +9,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from agents.planner import _classify_route, planner_node
+from agents.planner import (
+    _answer_from_analysis,
+    _answer_from_research,
+    _classify_route,
+    planner_node,
+)
 from agents.planner_schema import RouteDecision
 
 
@@ -77,7 +82,65 @@ def _run_full_loop(user_query: str, mocked_route: str):
             state = planner_node(state)
             history.append(state["next_agent"])
 
-        return state, history
+    return state, history
+
+
+def test_research_answer_uses_kb_internally_without_exposing_source_metadata():
+    mock_llm = _mock_llm_response("Nội dung đã được tổng hợp.")
+    state = {
+        "user_query": "Prompt injection là gì?",
+        "retrieved_documents": [{
+            "document_id": "secret_doc_id",
+            "chunk_id": "secret_chunk_id",
+            "title": "Private title",
+            "source": "Private source",
+            "content": "Prompt injection làm thay đổi hành vi dự kiến.",
+            "trust_level": 0.9,
+            "similarity_score": 0.95,
+        }],
+    }
+
+    with patch("agents.planner.get_llm", return_value=mock_llm):
+        answer = _answer_from_research(state)
+
+    messages = mock_llm.invoke.call_args.args[0]
+    system_prompt = messages[0][1]
+    kb_context = messages[1][1]
+    assert answer == "Nội dung đã được tổng hợp."
+    assert "Không thêm mục nguồn" in system_prompt
+    assert "Private title" not in kb_context
+    assert "Private source" not in kb_context
+    assert "secret_doc_id" not in kb_context
+    assert "secret_chunk_id" not in kb_context
+
+
+def test_analysis_answer_keeps_evidence_internal():
+    answer = _answer_from_analysis({
+        "analysis_result": {
+            "topic": "Prompt Injection",
+            "summary": "Nên áp dụng phòng thủ nhiều lớp.",
+            "comparison": [{
+                "defense": "Input Validation",
+                "purpose": "Kiểm tra đầu vào",
+                "evidence_document_ids": ["doc_private_1"],
+            }],
+            "contradictions": [{
+                "claim_a": "Biện pháp A hiệu quả.",
+                "claim_b": "Biện pháp A có giới hạn.",
+                "document_ids": ["doc_private_1", "doc_private_2"],
+                "explanation": "Khác điều kiện thử nghiệm.",
+            }],
+            "recommendation": "Kết hợp nhiều lớp kiểm soát.",
+            "evidence_document_ids": ["doc_private_1"],
+            "confidence": 0.8,
+        }
+    })
+
+    assert "doc_private_1" not in answer
+    assert "doc_private_2" not in answer
+    assert "Tài liệu bằng chứng" not in answer
+    assert "  Nguồn:" not in answer
+    assert "Nên áp dụng phòng thủ nhiều lớp." in answer
 
 
 def test_direct_response_route_goes_straight_to_final():

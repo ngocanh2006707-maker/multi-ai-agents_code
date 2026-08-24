@@ -155,16 +155,8 @@ def _answer_from_research(state: AgentState) -> str:
 
     context_blocks = []
     for i, doc in enumerate(documents, start=1):
-        try:
-            similarity = f"{float(doc.get('similarity_score', 0.0)):.4f}"
-        except (TypeError, ValueError):
-            similarity = "unknown"
         context_blocks.append(
-            f"[Tài liệu {i}]\n"
-            f"Tiêu đề: {doc.get('title', '')}\n"
-            f"Nguồn: {doc.get('source', '')}\n"
-            f"Trust level: {doc.get('trust_level', '')}\n"
-            f"Similarity: {similarity}\n"
+            f"[Đoạn tham khảo nội bộ {i}]\n"
             f"Nội dung: {doc.get('content', '')}"
         )
 
@@ -177,7 +169,10 @@ def _answer_from_research(state: AgentState) -> str:
                 "Bạn là Planner/Orchestrator của hệ thống nghiên cứu bảo mật AI Agent. "
                 "Hãy trả lời câu hỏi CHỈ dựa trên context do Research Agent truy xuất. "
                 "Không bịa thêm dữ kiện ngoài context. Nếu context chưa đủ, nói rõ giới hạn. "
-                "Trả lời bằng tiếng Việt, rõ ràng và ngắn gọn. Khi phù hợp, nhắc tên nguồn.",
+                "Trả lời bằng tiếng Việt, rõ ràng và ngắn gọn. Tổng hợp và diễn đạt lại "
+                "nội dung, không sao chép nguyên văn. Không đề cập Knowledge Base, đoạn "
+                "tham khảo, tên tài liệu, tên nguồn, tác giả, tổ chức, document_id, "
+                "chunk_id hoặc URL. Không thêm mục nguồn hay tài liệu tham khảo.",
             ),
             (
                 "human",
@@ -216,16 +211,11 @@ def _answer_from_analysis(state: AgentState) -> str:
                 lines.append(f"  Hạn chế: {', '.join(item['weaknesses'])}")
             if item.get("suitable_for"):
                 lines.append(f"  Phù hợp với: {', '.join(item['suitable_for'])}")
-            if item.get("evidence_document_ids"):
-                lines.append(
-                    "  Bằng chứng: "
-                    + ", ".join(item["evidence_document_ids"])
-                )
         lines.append("")
 
     contradictions = analysis.get("contradictions") or []
     if contradictions:
-        lines.append("Mâu thuẫn giữa các nguồn:")
+        lines.append("Điểm chưa thống nhất:")
         for item in contradictions:
             if isinstance(item, dict):
                 lines.append(
@@ -233,10 +223,6 @@ def _answer_from_analysis(state: AgentState) -> str:
                 )
                 if item.get("explanation"):
                     lines.append(f"  Giải thích: {item['explanation']}")
-                if item.get("document_ids"):
-                    lines.append(
-                        "  Nguồn: " + ", ".join(item["document_ids"])
-                    )
             else:
                 lines.append(f"- {item}")
         lines.append("")
@@ -244,11 +230,6 @@ def _answer_from_analysis(state: AgentState) -> str:
     recommendation = str(analysis.get("recommendation", "")).strip()
     if recommendation:
         lines.append(f"Khuyến nghị: {recommendation}")
-    if analysis.get("evidence_document_ids"):
-        lines.append(
-            "Tài liệu bằng chứng: "
-            + ", ".join(analysis["evidence_document_ids"])
-        )
     try:
         confidence = float(analysis.get("confidence", 0.0))
     except (TypeError, ValueError):
@@ -276,7 +257,7 @@ def _answer_from_analysis_and_execution(state: AgentState) -> str:
     """Giữ cả kết luận phân tích và kết quả tool trong luồng nhiều Worker."""
     sections: list[str] = []
     if state.get("analysis_result"):
-        sections.append("Phân tích và bằng chứng:\n" + _answer_from_analysis(state))
+        sections.append("Phân tích:\n" + _answer_from_analysis(state))
     if state.get("execution_result"):
         sections.append("Kết quả thực thi:\n" + _answer_from_execution(state))
     if not sections and "retrieved_documents" in state:
