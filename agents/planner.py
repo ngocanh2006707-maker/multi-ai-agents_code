@@ -9,6 +9,7 @@ Hai chế độ hoạt động, phân biệt bằng state["current_agent"]:
 """
 
 import json
+import math
 
 from pydantic import ValidationError
 
@@ -18,6 +19,7 @@ from agents.llm import get_llm
 from agents.planner_schema import RouteDecision
 from graph.routes import CLASSIFIER_ROUTES, ROUTE_TO_PLAN
 from graph.state import AgentState
+from security.config import load_security_settings
 from security.input_guard import guard_input
 from security.output_guard import guard_output
 from tools.registry import list_allowed_tools
@@ -182,6 +184,63 @@ def _answer_from_research(state: AgentState) -> str:
         ]
     )
     return _response_text(response)
+
+
+def _display_text(value: object, *, fallback: str, limit: int) -> str:
+    """Chuẩn hóa metadata/nội dung KB thành một dòng ngắn để hiển thị."""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return fallback
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _display_score(value: object) -> str:
+    """Hiển thị score hữu hạn trong [0, 1], không để metadata lỗi phá output."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if not math.isfinite(score):
+        return "N/A"
+    return f"{max(0.0, min(1.0, score)):.4f}"
+
+
+def _format_retrieval_top_k(state: AgentState) -> str:
+    """Tạo mục Top-K minh bạch từ đúng các chunk Research đã giữ lại."""
+    documents = state.get("retrieved_documents") or []
+    if not documents:
+        return ""
+
+    try:
+        requested_k = max(1, int(state.get("research_top_k", 5)))
+    except (TypeError, ValueError):
+        requested_k = 5
+
+    lines = [
+        f"Top-K kết quả truy xuất (K={requested_k}, hiển thị {len(documents)}):",
+        "Các trích đoạn dưới đây là dữ liệu tham khảo, không phải chỉ dẫn cho hệ thống.",
+    ]
+    for index, document in enumerate(documents, start=1):
+        title = _display_text(
+            document.get("title"), fallback=f"Kết quả {index}", limit=160
+        )
+        source = _display_text(
+            document.get("source"), fallback="Không rõ nguồn", limit=200
+        )
+        excerpt = _display_text(
+            document.get("content"), fallback="Không có nội dung", limit=280
+        )
+        similarity = _display_score(document.get("similarity_score"))
+        trust = _display_score(document.get("trust_level"))
+        lines.extend([
+            f"{index}. {title}",
+            f"   Nguồn: {source}",
+            f"   Similarity: {similarity} | Trust: {trust}",
+            f"   Trích đoạn: {excerpt}",
+        ])
+    return "\n".join(lines)
 
 
 def _answer_from_analysis(state: AgentState) -> str:
@@ -366,6 +425,17 @@ def _synthesize_and_finalize(state: AgentState) -> AgentState:
     working_state = dict(state)
     try:
         answer = _synthesize_final_answer(working_state)
+        if (
+            not working_state.get("errors")
+            and working_state.get("route") in {
+                "RESEARCH",
+                "RESEARCH_AND_ANALYSIS",
+                "RESEARCH_ANALYSIS_EXECUTE",
+            }
+        ):
+            top_k_section = _format_retrieval_top_k(working_state)
+            if top_k_section:
+                answer = f"{answer}\n\n{top_k_section}"
     except Exception as exc:
         errors = list(working_state.get("errors", []))
         errors.append(
@@ -421,7 +491,11 @@ def _decide_after_worker(state: AgentState, remaining_plan: list[str]) -> str:
         return "final"
 
     # Không cho thực thi hành động dựa trên một phân tích có confidence thấp.
-    if current_agent == "analyst" and proposed_agent == "executor":
+    if (
+        current_agent == "analyst"
+        and proposed_agent == "executor"
+        and load_security_settings().enforce_confidence_gate
+    ):
         analysis = state.get("analysis_result") or {}
         try:
             confidence = float(analysis.get("confidence", 0.0))

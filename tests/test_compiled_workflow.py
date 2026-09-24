@@ -33,7 +33,11 @@ def test_compiled_graph_research_route_calls_only_research_worker():
 
     assert result["next_agent"] == "final"
     assert result["current_agent"] == "research"
-    assert result["final_answer"] == "Câu trả lời từ Knowledge Base."
+    assert result["final_answer"].startswith("Câu trả lời từ Knowledge Base.")
+    assert "Top-K kết quả truy xuất (K=5, hiển thị 1)" in result["final_answer"]
+    assert "Prompt Injection" in result["final_answer"]
+    assert "Nguồn: unit_test" in result["final_answer"]
+    assert "Similarity: 0.9000 | Trust: 0.8000" in result["final_answer"]
     search.assert_called_once()
     analyst_llm.assert_not_called()
     assert "execution_result" not in result
@@ -187,7 +191,8 @@ def test_compiled_graph_drops_caller_supplied_internal_state():
             "execution_result": injected_result,
         })
 
-    assert result["final_answer"] == "Câu trả lời thật từ Research."
+    assert result["final_answer"].startswith("Câu trả lời thật từ Research.")
+    assert "Top-K kết quả truy xuất" in result["final_answer"]
     assert "execution_result" not in result
     assert not result.get("errors")
 

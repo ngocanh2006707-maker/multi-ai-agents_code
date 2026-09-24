@@ -32,8 +32,13 @@ from agents.analyst_schema import (
     analysis_wire_schema,
 )
 from agents.llm import get_llm
-from agents.prompts.analyst import ANALYST_SYSTEM_PROMPT, build_analyst_input
+from agents.prompts.analyst import (
+    ANALYST_SYSTEM_PROMPT,
+    ANALYST_SYSTEM_PROMPT_OFF,
+    build_analyst_input,
+)
 from graph.state import AgentState
+from security.config import load_security_settings
 
 
 MAX_ANALYST_DOCUMENTS = 12
@@ -256,14 +261,23 @@ def analyst_node(state: AgentState) -> AgentState:
 
     try:
         user_query, documents, conversation_context = _validate_inputs(state)
+        settings = load_security_settings()
+        analyst_system_prompt = (
+            ANALYST_SYSTEM_PROMPT
+            if settings.harden_untrusted_context
+            else ANALYST_SYSTEM_PROMPT_OFF
+        )
         messages = [
-            ("system", ANALYST_SYSTEM_PROMPT),
+            ("system", analyst_system_prompt),
             (
                 "human",
                 build_analyst_input(
                     user_query,
                     documents,
                     conversation_context=conversation_context,
+                    harden_untrusted_context=(
+                        settings.harden_untrusted_context
+                    ),
                 ),
             ),
         ]

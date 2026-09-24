@@ -1,8 +1,10 @@
-"""Semantic retrieval + trust-aware reranking cho Research Agent."""
+"""Semantic retrieval; trust-aware reranking chỉ bật ở Defense On."""
 
 from __future__ import annotations
 
 import os
+
+from security.config import load_security_settings
 
 
 def _minimum_similarity() -> float:
@@ -18,15 +20,26 @@ def _cosine_distance_to_similarity(distance: float) -> float:
     return max(0.0, min(1.0, 1.0 - float(distance)))
 
 
-def rerank_results(results: list[dict]) -> list[dict]:
-    """Ưu tiên semantic similarity nhưng có xét trust_level.
+def rerank_results(
+    results: list[dict],
+    *,
+    trust_aware: bool | None = None,
+) -> list[dict]:
+    """Xếp hạng semantic-only ở Defense Off, có xét trust ở Defense On.
 
     adjusted_score = similarity * (0.70 + 0.30 * trust_level)
-    => nguồn trust thấp bị giảm hạng nhưng không bị loại hoàn toàn ở baseline.
+    => nguồn trust thấp bị giảm hạng nhưng không bị loại hoàn toàn khi bật defense.
     """
+    if trust_aware is None:
+        trust_aware = load_security_settings().trust_aware_ranking
+
     for item in results:
-        trust = max(0.0, min(1.0, float(item.get("trust_level", 0.5))))
-        item["_ranking_score"] = item["similarity_score"] * (0.70 + 0.30 * trust)
+        similarity = float(item["similarity_score"])
+        if trust_aware:
+            trust = max(0.0, min(1.0, float(item.get("trust_level", 0.5))))
+            item["_ranking_score"] = similarity * (0.70 + 0.30 * trust)
+        else:
+            item["_ranking_score"] = similarity
     results.sort(key=lambda x: x["_ranking_score"], reverse=True)
     return results
 
@@ -70,6 +83,11 @@ def search(query: str, top_k: int = 5) -> list[dict]:
                 "source": metadata.get("source", ""),
                 "timestamp": metadata.get("timestamp", ""),
                 "trust_level": float(metadata.get("trust_level", 0.5)),
+                "trust_managed": metadata.get("trust_managed") is True,
+                "trust_policy_id": metadata.get("trust_policy_id", ""),
+                "source_allowlisted": (
+                    metadata.get("source_allowlisted") is True
+                ),
                 "content_hash": metadata.get("content_hash", ""),
                 "similarity_score": _cosine_distance_to_similarity(distance),
             }

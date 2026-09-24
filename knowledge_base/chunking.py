@@ -59,6 +59,14 @@ def chunk_document(
                     "source": document.get("source", ""),
                     "timestamp": document.get("timestamp", ""),
                     "trust_level": float(document.get("trust_level", 0.5)),
+                    "claimed_trust_level": float(
+                        document.get("claimed_trust_level", 0.0)
+                    ),
+                    "trust_managed": document.get("trust_managed") is True,
+                    "trust_policy_id": document.get("trust_policy_id", ""),
+                    "source_allowlisted": (
+                        document.get("source_allowlisted") is True
+                    ),
                     "content_hash": _sha256(content),
                     "document_hash": document.get("content_hash", ""),
                     "document_type": document.get("document_type", "unknown"),

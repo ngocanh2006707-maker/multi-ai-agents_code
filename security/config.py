@@ -28,6 +28,11 @@ class SecuritySettings(BaseModel):
     output_guard: bool = False
     min_trust_level: float = Field(default=0.5, ge=0.0, le=1.0)
     verify_content_hash: bool = True
+    require_managed_trust: bool = True
+    require_allowlisted_source: bool = True
+    trust_aware_ranking: bool = True
+    harden_untrusted_context: bool = True
+    enforce_confidence_gate: bool = True
 
 
 def load_security_settings(mode: str | None = None) -> SecuritySettings:

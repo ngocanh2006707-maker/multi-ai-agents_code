@@ -38,6 +38,24 @@ def guard_retrieval(documents: list[dict]) -> GuardResult:
             trust_level = 0.0
 
         findings: list[tuple[str, str, str]] = []
+        if (
+            settings.require_managed_trust
+            and document.get("trust_managed") is not True
+        ):
+            findings.append((
+                "knowledge_validation",
+                "unmanaged_trust_metadata",
+                f"Chunk {chunk_id} không có trust do hệ thống quản lý.",
+            ))
+        if (
+            settings.require_allowlisted_source
+            and document.get("source_allowlisted") is not True
+        ):
+            findings.append((
+                "knowledge_validation",
+                "source_not_allowlisted",
+                f"Chunk {chunk_id} đến từ nguồn chưa được phê duyệt.",
+            ))
         if trust_level < settings.min_trust_level:
             findings.append((
                 "retrieval",

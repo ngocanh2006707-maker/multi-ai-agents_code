@@ -6,3 +6,8 @@ security:
   output_guard: true
   min_trust_level: 0.5
   verify_content_hash: true
+  require_managed_trust: true
+  require_allowlisted_source: true
+  trust_aware_ranking: true
+  harden_untrusted_context: true
+  enforce_confidence_gate: true

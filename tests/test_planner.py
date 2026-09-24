@@ -13,6 +13,7 @@ from agents.planner import (
     _answer_from_analysis,
     _answer_from_research,
     _classify_route,
+    _format_retrieval_top_k,
     planner_node,
 )
 from agents.planner_schema import RouteDecision
@@ -112,6 +113,33 @@ def test_research_answer_uses_kb_internally_without_exposing_source_metadata():
     assert "Private source" not in kb_context
     assert "secret_doc_id" not in kb_context
     assert "secret_chunk_id" not in kb_context
+
+
+def test_format_retrieval_top_k_shows_rank_scores_source_and_excerpt():
+    section = _format_retrieval_top_k({
+        "research_top_k": 3,
+        "retrieved_documents": [{
+            "document_id": "internal_doc_id",
+            "chunk_id": "internal_chunk_id",
+            "title": "Prompt Injection Defense",
+            "source": "OWASP",
+            "content": "Validate untrusted input before it reaches the model.",
+            "trust_level": 0.9,
+            "similarity_score": 0.95,
+            "is_poisoned": True,
+            "attack_type": "test-only",
+        }],
+    })
+
+    assert "Top-K kết quả truy xuất (K=3, hiển thị 1)" in section
+    assert "1. Prompt Injection Defense" in section
+    assert "Nguồn: OWASP" in section
+    assert "Similarity: 0.9500 | Trust: 0.9000" in section
+    assert "Validate untrusted input" in section
+    assert "internal_doc_id" not in section
+    assert "internal_chunk_id" not in section
+    assert "is_poisoned" not in section
+    assert "test-only" not in section
 
 
 def test_analysis_answer_keeps_evidence_internal():
@@ -330,7 +358,8 @@ def test_planner_does_not_call_analyst_when_research_is_empty():
     assert state["plan"] == []
 
 
-def test_low_confidence_analysis_stops_before_executor():
+def test_low_confidence_analysis_stops_before_executor(monkeypatch):
+    monkeypatch.setenv("DEFENSE_MODE", "on")
     state = planner_node({
         "user_query": "Phân tích rồi chạy thử nghiệm",
         "route": "RESEARCH_ANALYSIS_EXECUTE",
@@ -350,6 +379,39 @@ def test_low_confidence_analysis_stops_before_executor():
     assert state["next_agent"] == "final"
     assert state["plan"] == []
     assert "execution_request" not in state
+
+
+def test_defense_off_allows_low_confidence_analysis_to_reach_executor(
+    monkeypatch,
+):
+    monkeypatch.setenv("DEFENSE_MODE", "off")
+    execution_request = {
+        "tool_name": "run_security_test",
+        "params": {"config": {"metrics": [], "records": []}},
+    }
+    with patch(
+        "agents.planner._build_execution_request",
+        return_value=execution_request,
+    ):
+        state = planner_node({
+            "user_query": "Phân tích rồi chạy thử nghiệm",
+            "route": "RESEARCH_ANALYSIS_EXECUTE",
+            "plan": ["analyst", "executor"],
+            "current_agent": "analyst",
+            "analysis_result": {
+                "topic": "Test",
+                "summary": "Nguồn chưa đủ chắc chắn.",
+                "comparison": [],
+                "contradictions": [],
+                "recommendation": "Tiếp tục chạy.",
+                "confidence": 0.2,
+            },
+            "errors": [],
+        })
+
+    assert state["next_agent"] == "executor"
+    assert state["plan"] == ["executor"]
+    assert state["execution_request"] == execution_request
 
 
 def test_execution_request_error_is_converted_to_final_state():

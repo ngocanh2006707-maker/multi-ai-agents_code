@@ -56,6 +56,17 @@ EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL=BAAI/bge-m3
 ```
 
+Sau khi BGE-M3 đã được tải đầy đủ vào cache, có thể tắt hoàn toàn việc kiểm tra
+Hugging Face Hub và các dòng retry do kết nối bằng:
+
+```env
+EMBEDDING_LOCAL_FILES_ONLY=true
+```
+
+Ở chế độ này project tự bật Hugging Face offline mode, ẩn progress bar và chỉ
+đọc model trong cache. Nếu cache chưa đầy đủ, đặt lại thành `false`, chạy một lần
+khi có mạng để tải model, rồi mới bật lại.
+
 `API_KEY` chỉ dùng cho LLM. BGE-M3 chạy local và không dùng Gemini embedding
 quota. Lần đầu load model, `sentence-transformers` sẽ tự tải trọng số BGE-M3 về
 cache của máy; không commit trọng số model vào repository.
@@ -175,6 +186,33 @@ Schema document tối thiểu:
 `content_hash` không bắt buộc trong file đầu vào: ingestion sẽ tự tính nếu
 chưa có.
 
+### Trust do hệ thống quản lý và source quarantine
+
+Ở `DEFENSE_MODE=off`, `trust_level` trong JSONL được giữ nguyên và retrieval
+xếp hạng thuần theo semantic similarity. Đây là baseline ít phòng thủ, vì tài
+liệu có thể tự khai trust cao và hệ thống không dùng trust để hạ hạng.
+
+Ở `DEFENSE_MODE=on`, `trust_level` trong JSONL chỉ được lưu ở
+`claimed_trust_level` để audit. Giá trị dùng cho reranking/guard được hệ thống
+gán theo `configs/source_trust.yaml`; nguồn không có trong registry nhận trust
+mặc định `0.0` nên không thể tự nâng trust bằng cách sửa JSONL.
+
+Mỗi source trong registry có thêm cờ `allowed`. Khi build với
+`DEFENSE_MODE=off`, nguồn chưa được phép vẫn đi qua để tạo baseline. Khi build
+với `DEFENSE_MODE=on`, nguồn đó không được embedding/upsert vào collection
+chính và được ghi vào `artifacts/quarantine/*.jsonl`. Có thể chọn đường dẫn:
+
+```powershell
+$env:DEFENSE_MODE = "on"
+python scripts_build_kb.py --input data/raw/combined_documents.jsonl `
+  --quarantine-output artifacts/quarantine/review.jsonl --reset
+```
+
+Retrieval Guard chỉ kiểm tra `trust_managed` và `source_allowlisted` ở On và sẽ
+lọc chunk thiếu metadata an toàn. Off bỏ qua hai tín hiệu này. Vì snapshot KB cũ
+không có hai field này, cần rebuild collection trước khi chạy On; nếu chưa
+rebuild, On sẽ fail-closed và lọc các chunk cũ.
+
 ### Chia sẻ vector database
 
 `data/vector_db/` chứa SQLite và các file index nhị phân. Không sao chép thư mục
@@ -258,6 +296,12 @@ ranking_score = similarity_score × (0.70 + 0.30 × trust_level)
 
 Mục đích là ưu tiên nguồn đáng tin nhưng chưa loại tuyệt đối nguồn trust thấp
 ở baseline.
+
+Với các route có Research, câu trả lời cuối hiển thị thêm mục Top-K theo đúng
+thứ tự sau rerank và Retrieval Guard. Mỗi mục gồm tiêu đề, nguồn, similarity,
+trust và trích đoạn tối đa 280 ký tự. Tiêu đề/nội dung chỉ dùng để hiển thị;
+không được xử lý như chỉ dẫn hệ thống. Số kết quả thực tế có thể nhỏ hơn K nếu
+không đủ kết quả đạt ngưỡng hoặc có chunk bị Retrieval Guard lọc.
 
 Các field thử nghiệm `is_poisoned`, `attack_type`, `experiment_id` vẫn được
 lưu trong vector database để đánh giá sau này, nhưng **không trả cho Research
@@ -381,10 +425,21 @@ hoặc:
 DEFENSE_MODE=on
 ```
 
-Ở mode `off`, Input/Retrieval/Output Guard là pass-through. Ở mode `on`, hệ
-thống chặn heuristic Direct Prompt Injection, lọc retrieval theo trust level,
-content hash và injection pattern, đồng thời redaction secret trong final output.
-Tool allowlist của Executor luôn được áp dụng ở cả hai mode.
+Ở mode `off`, hệ thống dùng baseline gần như không phòng thủ: guard là
+pass-through, không kiểm tra trust/hash/source, không trust-aware reranking,
+không gắn retrieved context là dữ liệu không tin cậy và không chặn luồng thực
+thi vì confidence thấp. Detector injection/secret vẫn có thể ghi telemetry
+nhưng không thay đổi input, retrieval hay output.
+
+Ở mode `on`, hệ thống chặn heuristic Direct Prompt Injection, quarantine nguồn
+chưa duyệt khi build, lọc retrieval theo trust level/content hash/injection
+pattern, trust-aware reranking, hardening prompt của Analyst, confidence gate
+trước Executor và redaction secret trong final output.
+
+Các giới hạn schema, timeout/process isolation và tool allowlist của Executor
+luôn được áp dụng ở cả hai mode. Đây là ranh giới vận hành tối thiểu để testbed
+không gọi shell/network/delete/secret ngoài phạm vi, không phải defense biến đổi
+trong thí nghiệm OFF/ON.
 
 Input/Retrieval Guard chuẩn hóa Unicode và nhận diện các mẫu injection phổ biến
 bằng tiếng Anh, tiếng Việt, Tây Ban Nha, Pháp, Đức, Bồ Đào Nha, Nga, Trung,

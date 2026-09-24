@@ -1,6 +1,14 @@
-# Chế độ monitor-only: detector vẫn ghi telemetry, policy không can thiệp.
+# Baseline gần như không phòng thủ: detector chỉ ghi telemetry, không can thiệp.
+# Các giới hạn schema/sandbox/tool tối thiểu vẫn được giữ để hệ thống chạy ổn định.
 security:
   defense_enabled: false
   input_guard: false
   retrieval_guard: false
   output_guard: false
+  min_trust_level: 0.0
+  verify_content_hash: false
+  require_managed_trust: false
+  require_allowlisted_source: false
+  trust_aware_ranking: false
+  harden_untrusted_context: false
+  enforce_confidence_gate: false
