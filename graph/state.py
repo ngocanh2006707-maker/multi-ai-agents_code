@@ -49,6 +49,11 @@ class AgentState(RequiredAgentState, total=False):
     analysis_result: dict
 
     execution_request: dict
+    execution_params_source: str
+    execution_approval: bool
+    execution_destructive: bool
+    execution_params_modified: bool
+    execution_params_digest: str
     execution_result: dict
 
     final_answer: str
@@ -59,6 +64,8 @@ class AgentState(RequiredAgentState, total=False):
     errors: list[str]
     trace_id: str
     trace_sequence: int
+    canary_id: str
+    canary_fingerprint: str
     telemetry_failed: bool
     telemetry_errors: list[str]
 
@@ -68,6 +75,8 @@ class AgentState(RequiredAgentState, total=False):
     tool_called: str
     final_output_affected: bool
 
+    # Serialized SecurityEvent records.  New records use the normalized
+    # telemetry schema; keeping a dict shape preserves LangGraph boundaries.
     security_events: list[dict[str, Any]]
     input_blocked: bool
     retrieval_filtered_count: int

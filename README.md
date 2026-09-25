@@ -455,3 +455,75 @@ python scripts_test_phase9.py
 Seed case cho Prompt Injection nằm tại
 `experiments/prompt_injection/cases.jsonl`. Nhãn ground truth poisoning không
 được chuyển cho Agent khi retrieval.
+
+## 13. Blue Team T00-T10 architecture handoff
+
+The security pipeline is evaluated as four enforcement stages. Input Guard
+normalizes and scores the user prompt; high-risk prompts are blocked in
+`DEFENSE_MODE=on`, while medium-risk prompts are observed and may be sent to
+the semantic classifier. Retrieval Guard validates trust, content hash and
+injection patterns before context reaches an agent. Output Guard redacts
+secrets and blocks prompt/canary leakage. The Action Gate checks the proposed
+tool, parameters, provenance, approval and integrity digest immediately before
+execution.
+
+`off` and `on` are intentionally different experiment policies. In `off`, the
+guards emit `observed` telemetry and preserve the candidate value wherever the
+testbed permits it. In `on`, the relevant stage filters, blocks, redacts or
+fails closed. Executor schema validation, timeouts, process isolation and the
+static tool allowlist remain active in both modes; they are baseline safety
+boundaries, not an OFF/ON metric.
+
+### T10 measured controls
+
+The automated test evidence uses explicit denominators:
+
+* Input Guard: 6/6 direct attack payloads are blocked in ON; 6/6 are allowed
+  with `observed` events in OFF. The two explicit clean controls are 0/2 false
+  positives in ON (0%).
+* Multi-agent coverage harness: 4 clean scenarios run through research,
+  analysis, executor and chain routes with 0/4 false positives in ON (0%).
+  This harness uses mocked model decisions and is a routing/guard regression
+  check, not a claim about live-model attack resistance.
+* The repository test suite completed with 260 passed tests at the time of
+  this handoff. These pass counts are test health, not an attack detection
+  rate; attack rates always use the payload count shown above.
+
+The retrieval report keeps its own denominator: with valid trust/hash metadata,
+the reviewed pattern set filtered 3/5 injection controls in ON and retained
+both clean controls. P04 and P05 are documented misses, so this result is not
+presented as general semantic coverage. Documents lacking trust metadata are
+filtered by the trust policy; that is a metadata policy result, not proof that
+the content detector recognized an injection.
+
+### Known limits and fallback behavior
+
+The semantic classifier is an injectable, bounded hook used for medium-risk
+inputs only. Its configured timeout is 0.5 seconds and malformed output,
+exceptions or timeout use the configured medium-risk fallback; they do not
+escape as an unhandled exception. The default implementation is conservative
+and does not provide a real semantic model, so paraphrases, multilingual
+novel attacks and context-dependent intent remain outside the measured claim.
+
+Each invocation receives a unique prompt canary and SHA-256 fingerprint. The
+canary is injected into the Planner/Analyst system instructions and redacted
+from telemetry. Output Guard can detect the exact canary/fingerprint and known
+structural leak forms, but it cannot guarantee detection of paraphrased leaks,
+leaks from a prompt builder that omitted the canary, or a canary deliberately
+removed before output.
+
+The static allowlist answers "which tool may ever run". The contextual Action
+Gate answers "may this exact invocation run now" by checking the user-query
+binding, provenance, approval and parameter/integrity digest. A tool being on
+the allowlist therefore does not authorize retrieved instructions to rewrite
+its parameters. OFF records contextual violations; ON fails closed, while the
+baseline allowlist/schema/sandbox boundaries still apply in both modes.
+
+### Environment versus security metrics
+
+Live full-pipeline runs that depend on an external model endpoint are reported
+separately from detection and false-positive metrics. A run that stalls,
+cannot reach the provider or fails retrieval is an environment/coverage
+failure with an unknown attack outcome; it is not counted as a blocked attack
+or a clean pass. Manual artifacts are sanitized to hashes, lengths and IDs and
+must not be used to infer a model success rate when the run is incomplete.

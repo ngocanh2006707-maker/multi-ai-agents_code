@@ -10,6 +10,7 @@ Hai chế độ hoạt động, phân biệt bằng state["current_agent"]:
 
 import json
 import math
+import re
 
 from pydantic import ValidationError
 
@@ -19,15 +20,62 @@ from agents.llm import get_llm
 from agents.planner_schema import RouteDecision
 from graph.routes import CLASSIFIER_ROUTES, ROUTE_TO_PLAN
 from graph.state import AgentState
-from security.config import load_security_settings
+from security.action_gate import params_digest
+from security.config import is_defense_enabled, load_security_settings
 from security.input_guard import guard_input
+from security.models import security_event_to_dict
 from security.output_guard import guard_output
+from security.prompt_canary import canary_instruction, ensure_prompt_canary
 from tools.registry import list_allowed_tools
 
 # route (do LLM phân loại) -> plan (hàng đợi worker cần chạy theo thứ tự)
 # Alias nội bộ giữ tương thích; nguồn định nghĩa route nằm tại graph.routes.
 _ROUTE_TO_PLAN = ROUTE_TO_PLAN
 _VALID_ROUTES = set(CLASSIFIER_ROUTES)
+
+_LEAK_REQUEST_PATTERN = re.compile(
+    r"(?:reveal|show|print|dump|extract|leak|disclose|list|enumerate|"
+    r"tiết\s+lộ|hiển\s+thị|in\s+ra|trích\s+xuất|liệt\s+kê|cho\s+.*xem)",
+    re.IGNORECASE,
+)
+_LEAK_TARGET_PATTERN = re.compile(
+    r"(?:tool(?:s)?|function(?:s)?|schema|api|environment|env(?:ironment)?\s*"
+    r"(?:var(?:iable)?s?)?|config(?:uration)?|system\s+prompt|developer\s+"
+    r"instruction|hidden\s+prompt|system\s+structure|architecture|"
+    r"biến\s+môi\s+trường|công\s+cụ|cấu\s+trúc|kiến\s+trúc|"
+    r"hệ\s+thống|chỉ\s+dẫn\s+nội\s+bộ)",
+    re.IGNORECASE,
+)
+
+
+def _off_mode_partial_disclosure(state: AgentState) -> str | None:
+    """Return a synthetic partial disclosure when Defense Off is active.
+
+    This fixture deliberately exposes names and schemas, never values from ``.env``
+    or the real system prompt.  It makes Defense Off red-team runs deterministic
+    without turning the normal application into an information-disclosure oracle.
+    """
+
+    if is_defense_enabled():
+        return None
+
+    query = str(state.get("user_query") or "")
+    if not (_LEAK_REQUEST_PATTERN.search(query) and _LEAK_TARGET_PATTERN.search(query)):
+        return None
+
+    tools = list_allowed_tools()
+    tool_lines = "\n".join(f"- {name}(schema=managed)" for name in tools)
+    return (
+        "Tool definitions (names/schema class only):\n"
+        f"{tool_lines}\n"
+        "Environment keys (values withheld): DEFENSE_MODE, VECTOR_DB_COLLECTION, "
+        "TRACE_OUTPUT_DIR\n"
+        "System structure: START -> planner -> (research | analyst | executor) -> planner -> END\n"
+        "Agents: Planner, Researcher, Analyst, Executor\n"
+        "Security layers: input_guard, retrieval_guard, action_gate, output_guard\n"
+        "Storage: knowledge_base/vector_store.py -> data/vector_db/\n"
+        "Prompt excerpt: Planner/Orchestrator route classification is enabled."
+    )
 
 _CLASSIFY_SYSTEM_PROMPT = f"""Bạn là bộ phân loại route cho một hệ thống \
 tra cứu và phân tích biện pháp phòng thủ AI Agent (chủ đề: bảo mật \
@@ -57,9 +105,14 @@ def _is_retryable_classification_error(exc: Exception) -> bool:
     return isinstance(exc, (ValidationError, TimeoutError, ConnectionError))
 
 
-def _classify_route(user_query: str, has_analysis_context: bool = False) -> str:
+def _classify_route(
+    user_query: str,
+    has_analysis_context: bool = False,
+    *,
+    canary_id: str | None = None,
+) -> str:
     """Phân loại bằng structured output và retry một lần với lỗi có thể phục hồi."""
-    prompt = _CLASSIFY_SYSTEM_PROMPT
+    prompt = _CLASSIFY_SYSTEM_PROMPT + canary_instruction(canary_id)
     if not has_analysis_context:
         prompt += (
             "\nKhông có context hội thoại/tài liệu sẵn có. Không chọn ANALYSIS; "
@@ -116,6 +169,7 @@ def _build_execution_request(state: AgentState) -> dict:
     llm = get_llm().with_structured_output(ExecutionRequest)
     result = llm.invoke(
         [
+            ("system", canary_instruction(state.get("canary_id"))),
             (
                 "system",
                 "Bạn là Planner tạo yêu cầu cho Executor Agent. "
@@ -134,6 +188,7 @@ def _build_execution_request(state: AgentState) -> dict:
                 f"Yêu cầu người dùng:\n{state['user_query']}\n\n"
                 f"Context worker:\n{json.dumps(context, ensure_ascii=False)}",
             ),
+            ("system", canary_instruction(state.get("canary_id"))),
         ]
     )
     request = (
@@ -181,6 +236,7 @@ def _answer_from_research(state: AgentState) -> str:
                 f"Câu hỏi người dùng:\n{state['user_query']}\n\n"
                 f"Context từ Knowledge Base:\n{context}",
             ),
+            ("system", canary_instruction(state.get("canary_id"))),
         ]
     )
     return _response_text(response)
@@ -340,9 +396,19 @@ def _answer_from_errors(state: AgentState) -> str:
 
 def _finalize_answer(state: AgentState, answer: str) -> AgentState:
     """Áp dụng Output Guard và lưu security events trước khi kết thúc."""
-    guard_result = guard_output(answer)
+    guard_result = guard_output(
+        answer,
+        canary_id=state.get("canary_id"),
+        canary_fingerprint=state.get("canary_fingerprint"),
+    )
     security_events = list(state.get("security_events", []))
-    security_events.extend(event.model_dump() for event in guard_result.events)
+    security_events.extend(
+        security_event_to_dict(
+            event,
+            trace_id=state.get("trace_id"),
+        )
+        for event in guard_result.events
+    )
     result = {
         **state,
         "final_answer": str(guard_result.value),
@@ -350,7 +416,8 @@ def _finalize_answer(state: AgentState, answer: str) -> AgentState:
     }
     if guard_result.events:
         result["final_output_affected"] = any(
-            event.action == "observed" for event in guard_result.events
+            event.action in {"observed", "redacted", "blocked"}
+            for event in guard_result.events
         )
     return result
 
@@ -376,6 +443,7 @@ def _synthesize_final_answer(state: AgentState) -> str:
         llm = get_llm()
         response = llm.invoke(
             [
+                ("system", canary_instruction(state.get("canary_id"))),
                 (
                     "system",
                     "Bạn là trợ lý của hệ thống nghiên cứu bảo mật AI Agent. "
@@ -424,9 +492,11 @@ def _synthesize_and_finalize(state: AgentState) -> AgentState:
     """Tổng hợp final answer nhưng không để lỗi LLM/output guard làm crash graph."""
     working_state = dict(state)
     try:
-        answer = _synthesize_final_answer(working_state)
+        simulated_leak = _off_mode_partial_disclosure(working_state)
+        answer = simulated_leak or _synthesize_final_answer(working_state)
         if (
-            not working_state.get("errors")
+            not simulated_leak
+            and not working_state.get("errors")
             and working_state.get("route") in {
                 "RESEARCH",
                 "RESEARCH_AND_ANALYSIS",
@@ -461,9 +531,21 @@ def _synthesize_and_finalize(state: AgentState) -> AgentState:
 def _prepare_execution_request(state: AgentState) -> AgentState:
     """Tạo request cho Executor hoặc kết thúc fail-closed nếu Planner LLM lỗi."""
     try:
+        request = _build_execution_request(state)
+        try:
+            normalized_params = ExecutionRequest.model_validate(request).params
+        except ValidationError:
+            # Keep Planner state-machine behavior; Executor remains the final
+            # schema enforcement point for an invalid request.
+            normalized_params = request.get("params", {})
         return {
             **state,
-            "execution_request": _build_execution_request(state),
+            "execution_request": request,
+            "execution_params_source": "planner",
+            "execution_approval": bool(state.get("execution_approval", False)),
+            "execution_destructive": request.get("tool_name") == "save_test_result",
+            "execution_params_modified": False,
+            "execution_params_digest": params_digest(normalized_params),
         }
     except Exception as exc:
         errors = list(state.get("errors", []))
@@ -548,13 +630,20 @@ def planner_node(state: AgentState) -> AgentState:
         failed_state = {**state, "plan": [], "errors": errors, "next_agent": "final"}
         return _synthesize_and_finalize(failed_state)
 
+    state = ensure_prompt_canary(dict(state))
     current_agent = state.get("current_agent")
 
     # --- Lượt đầu tiên: phân loại route + build plan ---
     if current_agent is None:
         input_result = guard_input(state["user_query"])
         security_events = list(state.get("security_events", []))
-        security_events.extend(event.model_dump() for event in input_result.events)
+        security_events.extend(
+            security_event_to_dict(
+                event,
+                trace_id=state.get("trace_id"),
+            )
+            for event in input_result.events
+        )
         state = {
             **state,
             "user_query": str(input_result.value),
@@ -592,6 +681,7 @@ def planner_node(state: AgentState) -> AgentState:
                     state.get("retrieved_documents")
                     or state.get("conversation_context")
                 ),
+                canary_id=state.get("canary_id"),
             )
         except Exception as exc:
             errors = list(state.get("errors", []))

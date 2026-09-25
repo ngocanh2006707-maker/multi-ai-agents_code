@@ -30,7 +30,8 @@ from pydantic import ValidationError
 
 from agents.executor_schema import ExecutionRequest, ExecutionResult
 from graph.state import AgentState
-from security.models import SecurityEvent
+from security.action_gate import ActionGateDecision, evaluate_action_gate
+from security.models import SecurityEvent, security_event_to_dict
 from tools.registry import ToolNotAllowedError, get_tool
 
 
@@ -108,8 +109,13 @@ def _execute_tool_isolated(tool_name: str, params: dict):
         result_queue.join_thread()
 
 
-def _permission_event(tool_name: str, allowed: bool) -> dict:
-    return SecurityEvent(
+def _permission_event(
+    tool_name: str,
+    allowed: bool,
+    *,
+    trace_id: str | None = None,
+) -> dict:
+    event = SecurityEvent(
         stage="tool_permission",
         rule="executor_tool_allowlist",
         action="allowed" if allowed else "blocked",
@@ -118,7 +124,42 @@ def _permission_event(tool_name: str, allowed: bool) -> dict:
             if allowed
             else f"Tool {tool_name!r} không nằm trong allowlist."
         ),
-    ).model_dump()
+    )
+    return security_event_to_dict(event, trace_id=trace_id)
+
+
+def _action_gate_event(
+    tool_name: str,
+    decision: ActionGateDecision,
+    *,
+    trace_id: str | None = None,
+) -> dict:
+    event = SecurityEvent(
+        stage="tool_permission",
+        attack_type=(
+            "tool_manipulation"
+            if decision.action in {"observed", "blocked"}
+            else "none"
+        ),
+        risk_score=(
+            0.9
+            if decision.action == "blocked"
+            else 0.6
+            if decision.action == "observed"
+            else 0.0
+        ),
+        rule=decision.rule,
+        action=decision.action,
+        detail=(
+            f"Action gate decision for tool {tool_name!r}: "
+            f"{decision.reason_code}."
+        ),
+        metadata={
+            "destructive": decision.destructive,
+            "requires_approval": decision.requires_approval,
+        },
+    )
+    return security_event_to_dict(event, trace_id=trace_id)
 
 
 def _result(status: str, tool: str, *, result=None, error: str | None = None) -> dict:
@@ -149,11 +190,54 @@ def executor_node(state: AgentState) -> AgentState:
             "errors": errors,
         }
 
+    decision = evaluate_action_gate(
+        user_query=state.get("user_query"),
+        tool_name=request.tool_name,
+        params=request.params,
+        params_source=(
+            state.get("execution_params_source") or state.get("params_source")
+        ),
+        approval=(
+            state.get("execution_approval")
+            if "execution_approval" in state
+            else state.get("approval_granted")
+        ),
+        destructive=state.get("execution_destructive"),
+        params_modified=state.get("execution_params_modified"),
+        expected_params_digest=state.get("execution_params_digest"),
+    )
+    security_events = list(state.get("security_events", []))
+    gate_event = _action_gate_event(
+        request.tool_name,
+        decision,
+        trace_id=state.get("trace_id"),
+    )
+    if not decision.allowed:
+        security_events.append(gate_event)
+        return {
+            **state,
+            "execution_result": _result(
+                "denied",
+                request.tool_name,
+                error="Action Gate denied the tool request.",
+            ),
+            "current_agent": "executor",
+            "tool_called": request.tool_name,
+            "security_events": security_events,
+        }
+
+    security_events.append(gate_event)
     try:
         tool = get_tool(request.tool_name)
     except ToolNotAllowedError:
         security_events = list(state.get("security_events", []))
-        security_events.append(_permission_event(request.tool_name, False))
+        security_events.append(
+            _permission_event(
+                request.tool_name,
+                False,
+                trace_id=state.get("trace_id"),
+            )
+        )
         return {
             **state,
             "execution_result": _result(
@@ -166,8 +250,13 @@ def executor_node(state: AgentState) -> AgentState:
             "security_events": security_events,
         }
 
-    security_events = list(state.get("security_events", []))
-    security_events.append(_permission_event(request.tool_name, True))
+    security_events.append(
+        _permission_event(
+            request.tool_name,
+            True,
+            trace_id=state.get("trace_id"),
+        )
+    )
     try:
         # Lookup phía trên là permission check; process con lookup lại cùng registry
         # đã khóa trước khi thực thi.

@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -178,11 +179,90 @@ _INJECTION_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
 INJECTION_PATTERNS = tuple(pattern for _, pattern in _INJECTION_RULES)
 
 
-def _normalize_for_detection(text: str) -> str:
-    """Chuẩn hóa Unicode và loại ký tự zero-width thường dùng để né regex."""
-    normalized = unicodedata.normalize("NFKC", text or "")
+@dataclass(frozen=True)
+class CanonicalizedText:
+    """Các biểu diễn an toàn để detector dùng mà không mất input gốc."""
+
+    original: str
+    normalized: str
+    compact: str
+
+
+def canonicalize_text(text: str | None) -> CanonicalizedText:
+    """Return original, normalized and separator-free detector views.
+
+    ``normalized`` keeps word boundaries for the existing multilingual rules.
+    ``compact`` removes punctuation, symbols and whitespace so token splitting
+    such as ``i-g-n-o-r-e`` cannot bypass a compact rule.  The original value
+    is retained for policy-controlled forwarding, never for telemetry detail.
+    """
+
+    original = text if isinstance(text, str) else str(text or "")
+    normalized = unicodedata.normalize("NFKC", original)
     normalized = _ZERO_WIDTH_CHARS.sub("", normalized)
-    return _WHITESPACE.sub(" ", normalized).strip()
+    normalized = _WHITESPACE.sub(" ", normalized).strip()
+    compact = re.sub(r"[^\w]+|_", "", normalized.casefold())
+    return CanonicalizedText(
+        original=original,
+        normalized=normalized,
+        compact=compact,
+    )
+
+
+def _normalize_for_detection(text: str) -> str:
+    """Backward-compatible normalized view used by existing callers/tests."""
+
+    return canonicalize_text(text).normalized
+
+
+# Compact patterns intentionally mirror only high-signal rules.  They operate
+# on a separator-free view and therefore catch punctuation/underscore splitting
+# without making ordinary research prose an injection match.
+_COMPACT_INJECTION_RULES: dict[str, re.Pattern[str]] = {
+    "en_ignore_instructions": re.compile(
+        r"(?:ignore|disregard)(?:all|the)?(?:previous|prior)instructions"
+    ),
+    "en_reveal_prompt": re.compile(
+        r"(?:reveal|show|print|expose)(?:the)?(?:system|developer)prompt"
+    ),
+    "en_override_instructions": re.compile(
+        r"(?:donotfollow(?:the)?(?:system|developer)instructions|"
+        r"override(?:the)?(?:system|developer)instructions)"
+    ),
+    "en_role_hijack": re.compile(r"youarenow"),
+}
+
+
+def _rule_matches(
+    rule_name: str,
+    pattern: re.Pattern[str],
+    canonical: CanonicalizedText,
+) -> bool:
+    compact_pattern = _COMPACT_INJECTION_RULES.get(rule_name)
+    return bool(
+        pattern.search(canonical.normalized)
+        or (compact_pattern and compact_pattern.search(canonical.compact))
+    )
+
+
+def _compact_retrieval_command(rule_name: str, sentence: str) -> bool:
+    """Apply compact matching without treating quoted prose as a command."""
+
+    compact_pattern = _COMPACT_INJECTION_RULES.get(rule_name)
+    if compact_pattern is None:
+        return False
+
+    candidate = sentence.strip()
+    polite_prefix = re.match(
+        r"^(?:please|hãy|vui\s+lòng|por\s+favor|s['’]il\s+vous\s+pla[iî]t|"
+        r"bitte|пожалуйста)\s*[:,]?\s*",
+        candidate,
+        re.IGNORECASE,
+    )
+    if polite_prefix:
+        candidate = candidate[polite_prefix.end():].lstrip()
+    compact_match = compact_pattern.search(canonicalize_text(candidate).compact)
+    return compact_match is not None and compact_match.start() == 0
 
 
 def _is_retrieval_command(sentence: str, match: re.Match[str]) -> bool:
@@ -196,23 +276,26 @@ def detect_injection_patterns(
     context: Literal["user_input", "retrieved_content"] = "user_input",
 ) -> list[str]:
     """Trả tên rule khớp, với chính sách riêng cho input và nội dung KB."""
-    normalized = _normalize_for_detection(text)
+    canonical = canonicalize_text(text)
     if context == "user_input":
         return [
             f"prompt_injection_pattern_{rule_name}"
             for rule_name, pattern in _INJECTION_RULES
-            if pattern.search(normalized)
+            if _rule_matches(rule_name, pattern, canonical)
         ]
     if context != "retrieved_content":
         raise ValueError(f"Detection context không hợp lệ: {context!r}")
 
-    sentences = _SENTENCE_BOUNDARY.split(normalized)
+    sentences = _SENTENCE_BOUNDARY.split(canonical.normalized)
     return [
         f"prompt_injection_pattern_{rule_name}"
         for rule_name, pattern in _INJECTION_RULES
         if any(
-            (match := pattern.search(sentence)) is not None
-            and _is_retrieval_command(sentence, match)
+            (
+                (match := pattern.search(sentence)) is not None
+                and _is_retrieval_command(sentence, match)
+            )
+            or _compact_retrieval_command(rule_name, sentence)
             for sentence in sentences
         )
     ]

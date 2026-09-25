@@ -1,13 +1,4 @@
-"""
-Vị trí phòng thủ: Research -> [Retrieval Defense] -> Planner (mục 13),
-và Knowledge Base -> [Knowledge Validation].
-
-Khi defense_off: phát hiện ở chế độ monitor-only nhưng không lọc.
-Khi defense_on: lọc theo trust_level/hash và dấu hiệu Indirect Prompt
-Injection / Data Poisoning trong nội dung retrieval.
-
-Sẽ triển khai khung tối thiểu ở Phase 9.
-"""
+"""Retrieval-time validation and indirect prompt-injection defense."""
 
 from __future__ import annotations
 
@@ -16,6 +7,7 @@ import hashlib
 from security.config import load_security_settings
 from security.models import GuardResult, SecurityEvent
 from security.patterns import detect_injection_patterns
+from security.prompt_risk import assess_prompt_risk
 
 
 def _sha256(text: str) -> str:
@@ -23,7 +15,7 @@ def _sha256(text: str) -> str:
 
 
 def guard_retrieval(documents: list[dict]) -> GuardResult:
-    """Luôn quan sát rủi ro retrieval; chỉ lọc khi policy đang được bật."""
+    """Validate retrieved chunks while preserving the Off/On contract."""
     settings = load_security_settings()
     enforce = settings.defense_enabled and settings.retrieval_guard
     accepted: list[dict] = []
@@ -78,28 +70,76 @@ def guard_retrieval(documents: list[dict]) -> GuardResult:
             content,
             context="retrieved_content",
         )
-        findings.extend(
-            (
-                "retrieval",
-                rule,
-                f"Chunk {chunk_id} chứa chỉ dẫn đáng ngờ.",
-            )
-            for rule in detections
+
+        risk = assess_prompt_risk(
+            content,
+            settings=settings,
+            context="retrieved_content",
         )
-        events.extend(
-            SecurityEvent(
-                stage=stage,
-                rule=rule,
-                action="filtered" if enforce else "observed",
-                detail=(
-                    f"{detail} Đã lọc khỏi retrieval."
-                    if enforce
-                    else f"{detail} Policy không lọc."
-                ),
+        risk_score = risk.score
+        # A canonicalized command pattern is high-confidence indirect
+        # injection evidence even when its composite score is only medium.
+        high_risk = risk_score >= settings.retrieval_risk_high_threshold
+        if detections and risk_score >= settings.retrieval_risk_medium_threshold:
+            high_risk = True
+            risk_score = max(risk_score, settings.retrieval_risk_high_threshold)
+
+        document_id = document.get("document_id")
+        document_id = str(document_id) if document_id is not None else None
+
+        for stage, rule, detail in findings:
+            events.append(
+                SecurityEvent(
+                    stage=stage,
+                    attack_type="none",
+                    risk_score=0.0,
+                    rule=rule,
+                    action="filtered" if enforce else "observed",
+                    detail=(
+                        f"{detail} Đã lọc khỏi retrieval."
+                        if enforce
+                        else f"{detail} Policy không lọc."
+                    ),
+                    document_id=document_id,
+                    chunk_id=chunk_id,
+                )
             )
-            for stage, rule, detail in findings
-        )
-        if enforce and findings:
+
+        if detections:
+            for rule in detections:
+                events.append(
+                    SecurityEvent(
+                        stage="retrieval",
+                        attack_type="indirect_injection",
+                        risk_score=risk_score,
+                        rule=rule,
+                        action="filtered" if enforce and high_risk else "observed",
+                        detail=(
+                            f"Chunk {chunk_id} chứa command injection có score "
+                            f"{risk_score:.2f}."
+                        ),
+                        document_id=document_id,
+                        chunk_id=chunk_id,
+                    )
+                )
+        elif risk.signals:
+            events.append(
+                SecurityEvent(
+                    stage="retrieval",
+                    attack_type="indirect_injection",
+                    risk_score=risk_score,
+                    rule="retrieval_prompt_risk_scoring",
+                    action="filtered" if enforce and high_risk else "observed",
+                    detail=(
+                        f"Chunk {chunk_id} có command-context signals="
+                        f"{','.join(risk.signals)} với score {risk_score:.2f}."
+                    ),
+                    document_id=document_id,
+                    chunk_id=chunk_id,
+                )
+            )
+
+        if enforce and (findings or high_risk):
             continue
 
         # Không đọc is_poisoned: đây là ground truth chỉ dùng khi đánh giá.

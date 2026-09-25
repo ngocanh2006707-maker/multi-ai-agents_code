@@ -11,3 +11,22 @@ security:
   trust_aware_ranking: true
   harden_untrusted_context: true
   enforce_confidence_gate: true
+  prompt_risk_weights:
+    override: 0.65
+    internal_target: 0.70
+    sensitive_action: 0.70
+    roleplay: 0.15
+    authority_claim: 0.55
+    obfuscation: 0.20
+    tool_intent: 0.45
+  prompt_risk_medium_threshold: 0.55
+  prompt_risk_high_threshold: 0.80
+  retrieval_risk_medium_threshold: 0.55
+  retrieval_risk_high_threshold: 0.80
+  semantic_classifier_enabled: true
+  semantic_classifier_timeout_seconds: 0.5
+  semantic_positive_policy: high
+  semantic_fallback_policy: medium
+  prompt_leak_similarity_threshold: 0.85
+  action_gate_enabled: true
+  action_gate_require_provenance: true

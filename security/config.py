@@ -13,12 +13,23 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+_DEFAULT_PROMPT_RISK_WEIGHTS = {
+    "override": 0.65,
+    "internal_target": 0.70,
+    "sensitive_action": 0.70,
+    "roleplay": 0.15,
+    "authority_claim": 0.55,
+    "obfuscation": 0.20,
+    "tool_intent": 0.45,
+}
 
 
 class SecuritySettings(BaseModel):
@@ -33,6 +44,27 @@ class SecuritySettings(BaseModel):
     trust_aware_ranking: bool = True
     harden_untrusted_context: bool = True
     enforce_confidence_gate: bool = True
+    prompt_risk_weights: dict[str, float] = Field(
+        default_factory=lambda: dict(_DEFAULT_PROMPT_RISK_WEIGHTS)
+    )
+    prompt_risk_medium_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
+    prompt_risk_high_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    retrieval_risk_medium_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
+    retrieval_risk_high_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    semantic_classifier_enabled: bool = True
+    semantic_classifier_timeout_seconds: float = Field(default=0.5, gt=0.0, le=30.0)
+    semantic_positive_policy: Literal["high", "medium"] = "high"
+    semantic_fallback_policy: Literal["allow", "medium", "high"] = "medium"
+    prompt_leak_similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    action_gate_enabled: bool = True
+    action_gate_require_provenance: bool = True
+
+    @field_validator("prompt_risk_weights")
+    @classmethod
+    def validate_prompt_risk_weights(cls, value: dict[str, float]) -> dict[str, float]:
+        if any(weight < 0.0 or weight > 1.0 for weight in value.values()):
+            raise ValueError("prompt_risk_weights phải nằm trong [0,1]")
+        return value
 
 
 def load_security_settings(mode: str | None = None) -> SecuritySettings:

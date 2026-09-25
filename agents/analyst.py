@@ -39,6 +39,7 @@ from agents.prompts.analyst import (
 )
 from graph.state import AgentState
 from security.config import load_security_settings
+from security.prompt_canary import canary_instruction
 
 
 MAX_ANALYST_DOCUMENTS = 12
@@ -266,7 +267,7 @@ def analyst_node(state: AgentState) -> AgentState:
             ANALYST_SYSTEM_PROMPT
             if settings.harden_untrusted_context
             else ANALYST_SYSTEM_PROMPT_OFF
-        )
+        ) + canary_instruction(state.get("canary_id"))
         messages = [
             ("system", analyst_system_prompt),
             (

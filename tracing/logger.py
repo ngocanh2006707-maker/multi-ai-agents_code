@@ -45,6 +45,7 @@ _SENSITIVE_KEY_PARTS = (
     "token",
     "cookie",
     "records",
+    "canary",
 )
 _SECRET_VALUE_PATTERNS = (
     re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b"),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from graph.state import AgentState
 from knowledge_base.retrieval import search
+from security.models import security_event_to_dict
 from security.retrieval_guard import guard_retrieval
 
 
@@ -21,7 +22,13 @@ def research_node(state: AgentState) -> AgentState:
         guard_result = guard_retrieval(raw_documents)
         documents = guard_result.value
         security_events = list(state.get("security_events", []))
-        security_events.extend(event.model_dump() for event in guard_result.events)
+        security_events.extend(
+            security_event_to_dict(
+                event,
+                trace_id=state.get("trace_id"),
+            )
+            for event in guard_result.events
+        )
         result = {
             **state,
             "research_query": query,
