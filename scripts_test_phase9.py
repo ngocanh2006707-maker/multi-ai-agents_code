@@ -1,4 +1,4 @@
-"""So sánh hành vi guard giữa defense_off và defense_on, không gọi mạng."""
+"""So sánh hành vi guard giữa defense_off và defense_on mà không gọi mạng."""
 
 import os
 import sys

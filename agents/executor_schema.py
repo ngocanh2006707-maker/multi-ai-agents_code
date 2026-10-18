@@ -1,4 +1,4 @@
-"""Schema input/output và tham số tool của Executor Agent."""
+"""Schema đầu vào/đầu ra và tham số tool của Executor Agent."""
 
 import json
 from pathlib import Path

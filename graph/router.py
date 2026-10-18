@@ -8,7 +8,7 @@ LLM, không side-effect. Planner đã set sẵn next_agent trước khi hàm nà
 
 from graph.state import AgentState
 
-# Map next_agent (do Planner set) -> tên node trong graph.
+# Ánh xạ next_agent (do Planner đặt) -> tên node trong graph.
 _ROUTE_MAP = {
     "research": "research",
     "analyst": "analyst",

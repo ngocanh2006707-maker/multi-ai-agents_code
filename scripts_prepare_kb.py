@@ -1,9 +1,9 @@
-"""Normalize an external KB JSONL and merge it with the baseline seed file.
+"""Chuẩn hóa JSONL KB bên ngoài và ghép với file seed baseline.
 
-This script is deliberately limited to the known documents in the current KB
-import. It creates a backup before replacing the source JSONL, recalculates
-content hashes, validates both the corrected and merged datasets, and refuses
-to merge duplicate document IDs.
+Script này cố ý chỉ giới hạn ở các tài liệu đã biết trong lần nhập KB hiện tại.
+Script tạo bản sao lưu trước khi thay file JSONL nguồn, tính lại hash nội dung,
+kiểm tra cả dataset đã sửa lẫn dataset sau khi ghép, và từ chối ghép các
+document ID trùng nhau.
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ def normalize_documents(
                 + f"; pinned to OWASP revision {revision['commit']}."
             )
         else:
-            # Remaining dates were correct but lacked zero padding.
+            # Các ngày còn lại đúng nhưng thiếu phần đệm số 0.
             document["timestamp"] = date.fromisoformat(
                 "-".join(
                     [
@@ -208,7 +208,7 @@ def main() -> None:
         shutil.copy2(args.documents, backup)
     _write_jsonl(args.documents, incoming)
 
-    # Re-read the replaced source before merge so the on-disk artifact itself is tested.
+    # Đọc lại nguồn đã thay thế trước khi ghép để kiểm thử chính artifact trên đĩa.
     corrected = load_jsonl(args.documents)
     ingest_jsonl(args.documents)
     seed = load_jsonl(args.seed)

@@ -72,7 +72,7 @@ def chunk_document(
                     "document_type": document.get("document_type", "unknown"),
                     "topic": ",".join(document.get("topic", [])),
                     "chunk_index": index,
-                    # Field thí nghiệm: giữ trong DB để đo lường nhưng
+                    # Trường thí nghiệm: giữ trong DB để đo lường nhưng
                     # retrieval.py sẽ không trả cho Agent ở baseline.
                     "is_poisoned": bool(document.get("is_poisoned", False)),
                     "attack_type": document.get("attack_type") or "",

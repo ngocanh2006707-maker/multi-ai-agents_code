@@ -1,4 +1,4 @@
-"""Test Phase 4: Planner -> Research -> Planner -> Final.
+"""Kiểm thử Phase 4: Planner -> Research -> Planner -> Final.
 
 Trước lần chạy đầu tiên:
     python scripts_build_kb.py --reset

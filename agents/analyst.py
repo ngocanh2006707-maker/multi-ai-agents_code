@@ -27,7 +27,6 @@ from pydantic import ValidationError
 from agents.analyst_schema import (
     AnalysisDraft,
     AnalysisResult,
-    ConversationMessage,
     RetrievedDocument,
     analysis_wire_schema,
 )
@@ -39,11 +38,12 @@ from agents.prompts.analyst import (
 )
 from graph.state import AgentState
 from security.config import load_security_settings
+from security.coordination_guard import KB_SCOPE_TEMPLATE, safe_error
+from security.context_guard import WorkflowRuntimeContext
 from security.prompt_canary import canary_instruction
 
 
 MAX_ANALYST_DOCUMENTS = 12
-MAX_CONVERSATION_MESSAGES = 20
 MAX_ANALYST_CONTEXT_CHARS = 30000
 MAX_USER_QUERY_CHARS = 4000
 
@@ -54,11 +54,16 @@ _COMPARISON_QUERY = re.compile(
 
 
 class AnalysisQualityError(ValueError):
-    """Structured output đúng kiểu nhưng không đủ chất lượng/bằng chứng."""
+    """Output có cấu trúc đúng kiểu nhưng không đủ chất lượng/bằng chứng."""
 
 
-def _validate_inputs(state: AgentState) -> tuple[str, list[dict], list[dict]]:
-    """Validate và giới hạn context trước khi bất kỳ dữ liệu nào đi tới LLM."""
+def _validate_inputs(state: AgentState) -> tuple[str, list[dict]]:
+    """Kiểm tra và giới hạn context trước khi bất kỳ dữ liệu nào đi tới LLM."""
+    raw_conversation = state.get("conversation_context")
+    if raw_conversation is not None and (
+        not isinstance(raw_conversation, list) or raw_conversation
+    ):
+        raise ValueError("Analyst is KB-only; caller context is not supported")
     user_query = state.get("user_query")
     if not isinstance(user_query, str) or not user_query.strip():
         raise ValueError("user_query phải là chuỗi không rỗng")
@@ -80,41 +85,23 @@ def _validate_inputs(state: AgentState) -> tuple[str, list[dict], list[dict]]:
         for document in raw_documents
     ]
 
-    raw_conversation = state.get("conversation_context") or []
-    if not isinstance(raw_conversation, list):
-        raise TypeError("conversation_context phải là list")
-    if len(raw_conversation) > MAX_CONVERSATION_MESSAGES:
-        raise ValueError(
-            f"conversation_context vượt giới hạn {MAX_CONVERSATION_MESSAGES} messages"
-        )
-    conversation = [
-        ConversationMessage.model_validate(message).model_dump()
-        for message in raw_conversation
-    ]
-
     total_chars = sum(len(document["content"]) for document in documents)
-    total_chars += sum(len(message["content"]) for message in conversation)
     if total_chars > MAX_ANALYST_CONTEXT_CHARS:
         raise ValueError(
             f"Analyst context vượt giới hạn {MAX_ANALYST_CONTEXT_CHARS} ký tự"
         )
-    return user_query, documents, conversation
+    return user_query, documents
 
 
 def _validate_draft_quality(
     draft: AnalysisDraft,
     user_query: str,
     documents: list[dict],
-    conversation: list[dict],
 ) -> None:
     """Bảo đảm output bám nguồn và đáp ứng intent so sánh."""
     valid_evidence_ids = {
         str(document["document_id"]) for document in documents
     }
-    valid_evidence_ids.update(
-        f"conversation_{index}"
-        for index, _ in enumerate(conversation, start=1)
-    )
 
     cited_ids = set(draft.evidence_document_ids)
     for comparison in draft.comparison:
@@ -146,9 +133,20 @@ def _invoke_analysis_draft(
     messages: list[tuple[str, str]],
     user_query: str,
     documents: list[dict],
-    conversation: list[dict],
+    *,
+    runtime_context: WorkflowRuntimeContext | None = None,
+    unprotected: bool = False,
 ) -> AnalysisDraft:
-    """Retry một lần cho lỗi tạm thời hoặc structured output chưa hợp lệ."""
+    """Thử lại một lần cho lỗi tạm thời hoặc output có cấu trúc chưa hợp lệ."""
+    if unprotected:
+        from graph.baseline import decode_json
+        from agents.planner import _invoke_model, _response_text
+        response = _invoke_model(get_llm(), messages, purpose="analyst", runtime_context=runtime_context)
+        raw = _response_text(response)
+        try:
+            return decode_json(raw)
+        except ValueError:
+            return {"summary": raw}
     structured_llm = get_llm().with_structured_output(analysis_wire_schema())
     last_error: Exception | None = None
     retryable = (
@@ -159,7 +157,10 @@ def _invoke_analysis_draft(
     )
     for attempt in range(2):
         try:
-            result = structured_llm.invoke(messages)
+            result = (
+                runtime_context.invoke_model(structured_llm, messages, purpose="analyst", attempt=attempt + 1)
+                if runtime_context is not None else structured_llm.invoke(messages)
+            )
             draft = (
                 result
                 if isinstance(result, AnalysisDraft)
@@ -169,26 +170,23 @@ def _invoke_analysis_draft(
                 draft,
                 user_query,
                 documents,
-                conversation,
             )
             return draft
         except Exception as exc:
             last_error = exc
             if attempt == 1 or not isinstance(exc, retryable):
                 break
-    raise RuntimeError(f"Không thể tạo analysis draft: {last_error}") from last_error
+    raise RuntimeError("analysis_generation_failed") from last_error
 
 
 def _calculate_confidence(
     documents: list[dict],
     *,
-    has_conversation_context: bool = False,
     contradiction_count: int = 0,
 ) -> float:
     """Tính confidence từ provenance, trust, relevance và mức độ nhất quán."""
     if not documents:
-        # Hội thoại không có provenance chỉ là bằng chứng chưa kiểm chứng.
-        return 0.2 if has_conversation_context else 0.0
+        return 0.0
 
     quality_by_source: dict[str, list[float]] = {}
     for document in documents:
@@ -246,28 +244,29 @@ def _empty_analysis(message: str) -> dict:
     ).model_dump()
 
 
-def analyst_node(state: AgentState) -> AgentState:
-    """Phân tích retrieved_documents và ghi kết quả vào shared state."""
-    raw_documents = state.get("retrieved_documents") or []
-    raw_conversation = state.get("conversation_context") or []
-
-    if not raw_documents and not raw_conversation:
-        return {
-            **state,
-            "analysis_result": _empty_analysis(
-                "Research Agent chưa cung cấp tài liệu để phân tích."
-            ),
-            "current_agent": "analyst",
-        }
-
+def analyst_node(state: AgentState, *, runtime_context: WorkflowRuntimeContext | None = None) -> AgentState:
+    """Protected KB analysis in ON; raw caller/KB analysis in OFF."""
+    if not load_security_settings().defense_enabled:
+        from graph.baseline import analyst_node as baseline_analyst
+        return baseline_analyst(state, runtime_context=runtime_context)
     try:
-        user_query, documents, conversation_context = _validate_inputs(state)
+        user_query, documents = _validate_inputs(state)
+        if not documents:
+            return {
+                **state,
+                "analysis_result": _empty_analysis(
+                    "Research Agent chưa cung cấp tài liệu để phân tích."
+                ),
+                "current_agent": "analyst",
+            }
         settings = load_security_settings()
         analyst_system_prompt = (
             ANALYST_SYSTEM_PROMPT
             if settings.harden_untrusted_context
             else ANALYST_SYSTEM_PROMPT_OFF
         ) + canary_instruction(state.get("canary_id"))
+        if state.get("kb_task"):
+            analyst_system_prompt += "\n" + KB_SCOPE_TEMPLATE
         messages = [
             ("system", analyst_system_prompt),
             (
@@ -275,7 +274,6 @@ def analyst_node(state: AgentState) -> AgentState:
                 build_analyst_input(
                     user_query,
                     documents,
-                    conversation_context=conversation_context,
                     harden_untrusted_context=(
                         settings.harden_untrusted_context
                     ),
@@ -286,13 +284,12 @@ def analyst_node(state: AgentState) -> AgentState:
             messages,
             user_query,
             documents,
-            conversation_context,
+            runtime_context=runtime_context,
         )
         analysis = AnalysisResult(
             **draft.model_dump(),
             confidence=_calculate_confidence(
                 documents,
-                has_conversation_context=bool(conversation_context),
                 contradiction_count=len(draft.contradictions),
             ),
         )
@@ -303,8 +300,12 @@ def analyst_node(state: AgentState) -> AgentState:
             "current_agent": "analyst",
         }
     except Exception as exc:
+        if state.get("kb_task") and isinstance(exc.__cause__, (ValidationError, AnalysisQualityError)):
+            # The public KB channel exhausted its existing two-attempt budget.
+            # Planner rejects this candidate and retains independent parts.
+            return {**state, "analysis_result": {}, "current_agent": "analyst"}
         errors = list(state.get("errors", []))
-        errors.append(f"analyst: {type(exc).__name__}: {exc}")
+        errors.append(safe_error("analyst", "analysis_error", exc))
         return {
             **state,
             "analysis_result": _empty_analysis(

@@ -1,4 +1,4 @@
-"""Chroma persistent vector store cho Knowledge Base baseline."""
+"""Vector store Chroma bền vững cho Knowledge Base baseline."""
 
 from __future__ import annotations
 
@@ -78,11 +78,11 @@ def _validate_embedding_fingerprint(
     if not collection.count() and (
         missing_fingerprint or stored_dimension is None
     ):
-        # Chroma treats HNSW configuration keys as immutable. Passing an
-        # existing ``hnsw:space`` back to ``modify`` is interpreted as an
-        # attempt to change the distance function and fails even when the
-        # value is unchanged. Only update ordinary collection metadata here;
-        # the cosine configuration set at collection creation remains intact.
+        # Chroma xem các khóa cấu hình HNSW là bất biến. Truyền ``hnsw:space``
+        # hiện có lại cho ``modify`` sẽ bị hiểu là cố thay đổi hàm khoảng cách
+        # và thất bại ngay cả khi giá trị không đổi. Ở đây chỉ cập nhật
+        # metadata thông thường của collection; cấu hình cosine lúc tạo
+        # collection vẫn được giữ nguyên.
         mutable_metadata = {
             key: value
             for key, value in metadata.items()
@@ -98,7 +98,7 @@ def _validate_embedding_fingerprint(
 
 
 def reset_vector_store():
-    """Xóa collection hiện tại và tạo lại. Chỉ dùng khi build KB chủ động."""
+    """Xóa collection hiện tại và tạo lại. Chỉ dùng khi chủ động xây KB."""
     client = get_client()
     name = os.environ.get("VECTOR_DB_COLLECTION", "ai_agent_security_kb")
     try:

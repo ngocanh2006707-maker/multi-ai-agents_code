@@ -62,7 +62,7 @@ _CONFIGURED_ALLOWLIST = _load_configured_allowlist()
 
 
 # Không tự động tìm hoặc import callable dựa trên input của người dùng.
-# Tool chỉ được phép sau khi được đăng ký tường minh trong code.
+# Tool chỉ được phép sau khi được đăng ký tường minh trong mã nguồn.
 _registry_data: dict[str, ToolCallable] = {}
 _registry_frozen = False
 
@@ -107,7 +107,7 @@ def list_allowed_tools() -> tuple[str, ...]:
     return tuple(sorted(_registry_data))
 
 
-# Chỉ đăng ký tool đã có implementation và đã được review.
+# Chỉ đăng ký tool đã có phần triển khai và đã được xem xét.
 from tools.dataset_tools import read_dataset
 from tools.metric_tools import (
     calculate_metrics,

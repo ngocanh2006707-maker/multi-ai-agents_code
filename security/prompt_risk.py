@@ -1,8 +1,7 @@
-"""Composite prompt-risk scoring for T02.
+"""Chấm điểm rủi ro prompt tổng hợp cho T02.
 
-This module only assesses a prompt.  Policy decisions and score-to-level
-mapping belong to later integration tasks, so the result deliberately has no
-``risk_level`` field.
+Module này chỉ đánh giá prompt. Quyết định policy và ánh xạ điểm sang mức độ
+thuộc các tác vụ tích hợp sau, nên kết quả cố ý không có trường ``risk_level``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from security.config import SecuritySettings, load_security_settings
-from security.patterns import canonicalize_text, detect_injection_patterns
+from security.patterns import canonicalize_text, detect_injection_patterns, retrieval_command_candidates
 
 
 SignalName = Literal[
@@ -128,6 +127,12 @@ _SENSITIVE_ACTION_PATTERNS = (
     ),
 )
 
+_REPORTED_SEND_PREFIX = re.compile(
+    r"\b(?:context|data|messages?|dữ\s+liệu|tin\s+nhắn)\s+"
+    r"(?:that\s+)?(?:i|tôi|caller)\s+(?:(?:have|đã)\s+)?$",
+    re.IGNORECASE,
+)
+
 _ROLEPLAY_PATTERN = re.compile(
     r"\b(?:roleplay|role\s*play|pretend|simulate|simulation|ctf|game|"
     r"you\s+are\s+now|giả\s+lập|đóng\s+vai|mô\s+phỏng|trò\s+chơi)\b",
@@ -168,8 +173,7 @@ def _has_any(patterns: tuple[re.Pattern[str], ...], text: str) -> bool:
 
 
 def _retrieval_command_text(text: str) -> str:
-    canonical = canonicalize_text(text)
-    sentences = re.split(r"(?<=[.!?。！？])\s+", canonical.normalized)
+    sentences = retrieval_command_candidates(text)
     selected: list[str] = []
     for sentence in sentences:
         candidate = sentence.strip()
@@ -180,7 +184,7 @@ def _retrieval_command_text(text: str) -> str:
             continue
         if detect_injection_patterns(candidate, context="retrieved_content"):
             selected.append(candidate)
-    return " ".join(selected)
+    return "\n".join(selected)
 
 
 def _detect_signals(
@@ -190,16 +194,17 @@ def _detect_signals(
 ) -> tuple[list[SignalName], str | None]:
     canonical = canonicalize_text(text)
     if context == "retrieved_content":
-        command_text = _retrieval_command_text(canonical.normalized)
+        command_text = _retrieval_command_text(text)
         if not command_text:
             return [], None
         canonical = canonicalize_text(command_text)
     normalized = canonical.normalized
     signals: list[SignalName] = []
 
-    injection_rules = detect_injection_patterns(normalized, context=context)
+    injection_rules = detect_injection_patterns(canonical.original, context=context)
     if (
-        any("ignore_instructions" in rule or "override_instructions" in rule for rule in injection_rules)
+        any("ignore_instructions" in rule or "override_instructions" in rule
+            or "retrieval_answer_instruction" in rule for rule in injection_rules)
         or _has_any(_OVERRIDE_PATTERNS, normalized)
     ):
         signals.append("override")
@@ -211,11 +216,24 @@ def _detect_signals(
     if sensitive_target is not None:
         signals.append("internal_target")
 
-    if _has_any(_SENSITIVE_ACTION_PATTERNS, normalized):
+    # In caller queries, a relative clause such as "context tôi gửi" reports
+    # data supplied by the caller; it does not instruct an agent to send it.
+    # Check every match so a later send command remains visible. KB policy is
+    # unchanged: retrieved instructions never gain caller authority.
+    if any(
+        not (
+            context == "user_input"
+            and match.group().casefold() in {"send", "gửi"}
+            and _REPORTED_SEND_PREFIX.search(normalized[:match.start()])
+        )
+        for pattern in _SENSITIVE_ACTION_PATTERNS
+        for match in pattern.finditer(normalized)
+    ):
         signals.append("sensitive_action")
 
-    # Reuse the shared multilingual detector as semantic evidence.  This keeps
-    # language-specific prompt-exfiltration rules out of this scoring module.
+    # Tái sử dụng detector đa ngôn ngữ dùng chung làm bằng chứng ngữ nghĩa.
+    # Nhờ đó các rule trích xuất prompt theo từng ngôn ngữ không nằm trong
+    # module chấm điểm này.
     if any("reveal_prompt" in rule for rule in injection_rules):
         if "internal_target" not in signals:
             sensitive_target = "system_prompt"
@@ -265,7 +283,7 @@ def assess_prompt_risk(
     settings: SecuritySettings | None = None,
     context: RiskContext = "user_input",
 ) -> RiskAssessment:
-    """Assess composite prompt signals using weights from SecuritySettings."""
+    """Đánh giá tín hiệu prompt tổng hợp bằng trọng số từ SecuritySettings."""
 
     active_settings = settings or load_security_settings()
     signals, sensitive_target = _detect_signals(text, context=context)
@@ -282,5 +300,5 @@ def assess_prompt_risk(
     )
 
 
-# Explicit alias for callers that prefer a scoring verb.
+# Alias tường minh cho caller thích dùng động từ chấm điểm.
 score_prompt_risk = assess_prompt_risk

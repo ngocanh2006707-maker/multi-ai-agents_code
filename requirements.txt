@@ -1,30 +1,30 @@
-# --- Core orchestration ---
+# --- Điều phối lõi ---
 langgraph>=0.2.0
 langchain>=0.3.0
 langchain-core>=0.3.0
 
-# --- Google Gemini: Phase 3 LLM + Phase 4 embeddings ---
+# --- Google Gemini: LLM Phase 3 + embedding Phase 4 ---
 langchain-google-genai>=4.0.0
 
-# --- Optional LLM providers (chỉ cài nếu đổi provider) ---
+# --- Nhà cung cấp LLM tùy chọn (chỉ cài nếu đổi provider) ---
 # langchain-anthropic>=0.2.0
 # langchain-openai>=0.2.0
 
-# --- Vector DB ---
+# --- Cơ sở dữ liệu vector ---
 chromadb>=0.5.0
 
-# --- Optional local embeddings ---
+# --- Embedding local tùy chọn ---
 langchain-huggingface>=0.1.0
 sentence-transformers>=3.0.0
 
-# --- Config & validation ---
+# --- Cấu hình và kiểm tra ---
 python-dotenv>=1.0.0
 pydantic>=2.7.0
 pyyaml>=6.0.0
 
-# --- Utils ---
+# --- Tiện ích ---
 tenacity>=8.2.0
 
-# --- Testing ---
+# --- Kiểm thử ---
 pytest>=8.0.0
 pytest-mock>=3.14.0

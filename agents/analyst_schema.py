@@ -94,7 +94,7 @@ class Contradiction(StrictAnalysisModel):
 
 
 class AnalysisDraft(StrictAnalysisModel):
-    """Structured output do LLM sinh; confidence được hệ thống thêm sau."""
+    """Output có cấu trúc do LLM sinh; confidence được hệ thống thêm sau."""
 
     topic: ShortText = Field(
         description="Chủ đề đang được phân tích."

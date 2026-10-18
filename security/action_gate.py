@@ -1,9 +1,10 @@
-"""Contextual authorization gate for Executor tool calls."""
+"""Action Gate theo context cho các lần gọi tool của Executor."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +14,16 @@ from tools.registry import is_allowed
 
 
 GateAction = Literal["allowed", "observed", "blocked"]
+
+
+@dataclass(frozen=True)
+class ExecutionApprovalRequest:
+    """Immutable, concrete request presented to the trusted application callback."""
+
+    run_id: str
+    tool_name: str
+    params_digest: str
+    params_json: str
 
 
 class ActionGateDecision(BaseModel):
@@ -76,7 +87,7 @@ def _tool_matches_query(user_query: str, tool_name: str) -> bool:
 
 
 def params_digest(params: dict[str, Any]) -> str:
-    """Fingerprint validated params without retaining their raw content."""
+    """Tạo fingerprint cho params đã kiểm tra mà không giữ nội dung thô."""
 
     encoded = json.dumps(
         params,
@@ -98,6 +109,7 @@ def evaluate_action_gate(
     destructive: bool | None = None,
     params_modified: bool | None = None,
     expected_params_digest: str | None = None,
+    confirmed_request: dict[str, Any] | None = None,
     settings: SecuritySettings | None = None,
 ) -> ActionGateDecision:
     """Evaluate context without executing a tool or trusting retrieved text."""
@@ -108,7 +120,7 @@ def evaluate_action_gate(
     is_destructive = normalized_tool in _DESTRUCTIVE_TOOLS or bool(destructive)
     needs_approval = is_destructive
 
-    # Allowlist remains an unconditional control in both Defense modes.
+    # Allowlist luôn là lớp kiểm soát bắt buộc trong cả hai chế độ Defense.
     if not normalized_tool or not is_allowed(normalized_tool):
         return ActionGateDecision(
             allowed=False,
@@ -135,6 +147,18 @@ def evaluate_action_gate(
             reasons.append("missing_params_provenance")
         elif _is_retrieved_source(source):
             reasons.append("params_from_retrieved_content")
+        elif source not in {"user", "caller_task", "planner"}:
+            reasons.append("unrecognized_params_provenance")
+
+    # A model's self-digest only detects later changes. Bind the candidate to
+    # the schema-validated caller task captured before any model/worker runs.
+    if confirmed_request is None:
+        reasons.append("missing_confirmed_execution_input")
+    else:
+        if confirmed_request["tool_name"] != normalized_tool:
+            reasons.append("caller_task_tool_mismatch")
+        if params_digest(confirmed_request["params"]) != params_digest(params):
+            reasons.append("caller_task_params_mismatch")
 
     if params_modified is True:
         reasons.append("params_modified_after_planning")

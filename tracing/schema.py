@@ -1,4 +1,4 @@
-"""Schema của structured trace event."""
+"""Schema của sự kiện trace có cấu trúc."""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -6,7 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-TraceAgent = Literal["planner", "research", "analyst", "executor"]
+TraceAgent = Literal[
+    "context_boundary",
+    "planner",
+    "research",
+    "analyst",
+    "executor",
+]
 
 
 class TraceEvent(BaseModel):

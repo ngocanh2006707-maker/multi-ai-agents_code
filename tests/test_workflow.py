@@ -4,12 +4,14 @@ test_workflow — sẽ triển khai song song với Agent/module tương ứng
 """
 
 from unittest.mock import patch
+import hashlib
 
 from agents.analyst import analyst_node
 from agents.analyst_schema import AnalysisDraft
 from agents.executor import executor_node
 from agents.planner import planner_node
 from agents.researcher import research_node
+from security.context_guard import new_workflow_runtime
 
 
 def test_research_analysis_flow_returns_to_planner_before_final():
@@ -17,6 +19,9 @@ def test_research_analysis_flow_returns_to_planner_before_final():
         "document_id": "doc_1",
         "chunk_id": "doc_1_chunk_00",
         "content": "Input Validation kiểm tra đầu vào.",
+        "content_hash": hashlib.sha256("Input Validation kiểm tra đầu vào.".encode()).hexdigest(),
+        "trust_managed": True,
+        "source_allowlisted": True,
         "source": "unit_test",
         "trust_level": 0.8,
         "similarity_score": 0.9,
@@ -82,7 +87,14 @@ def test_execute_flow_returns_structured_result_to_planner():
         state = planner_node({"user_query": "Tính Attack Success Rate"})
 
     assert state["next_agent"] == "executor"
-    state = executor_node(state)
+    runtime = new_workflow_runtime()
+    runtime.original_query = "Tính Attack Success Rate"
+    runtime.registry.initialize((), discarded_metadata_fields=0)
+    runtime.bind_execution_input(request)
+    try:
+        state = executor_node(state, runtime_context=runtime)
+    finally:
+        runtime.close()
     state = planner_node(state)
 
     assert state["next_agent"] == "final"

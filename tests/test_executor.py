@@ -1,7 +1,17 @@
 from unittest.mock import patch
+import pytest
 
 from agents.executor import executor_node
 from tools import dataset_tools
+from security.config import load_security_settings
+
+
+@pytest.fixture(autouse=True)
+def executor_component_policy(monkeypatch):
+    # These unit tests cover schemas, allowlist, and process isolation.
+    # Caller-task binding is exercised with the real gate in integration tests.
+    settings = load_security_settings('on').model_copy(update={'action_gate_enabled': False})
+    monkeypatch.setattr('security.action_gate.load_security_settings', lambda: settings)
 
 
 def test_executor_runs_allowed_calculate_metrics_tool():

@@ -1,11 +1,25 @@
-# Multi-Agent AI Security Research Assistant
+# Trợ lý nghiên cứu bảo mật AI đa tác tử
 
 Hệ thống đa tác tử theo kiến trúc **Centralized Orchestrator** để tra cứu,
 phân tích và so sánh các biện pháp phòng thủ cho AI Agent / Multi-Agent
-System, đồng thời chuẩn bị làm testbed cho Prompt Injection và
-Data/Knowledge Poisoning.
+System. Phạm vi phòng thủ thực nghiệm gồm **Prompt Injection** và
+**User-Originated Coordinator Flaw / Conversation Context Spoofing** qua
+`conversation_context`. Tài liệu KB chứa injection là attack surface của PI;
+project không khẳng định phòng thủ mọi dạng poisoning hoặc mọi lỗi coordinator.
 
-## Trạng thái hiện tại
+Bản nội dung báo cáo sau P1–P7 và OFF mới: [Kiến trúc, kết quả và giới hạn](BAO_CAO_KIEN_TRUC_VA_KET_QUA_PHONG_THU.md),
+kèm [bản Word](Bao_cao_kien_truc_va_ket_qua_phong_thu.docx). Báo cáo tách `Fixed`
+khỏi model-level `Validated` và giữ nguyên evidence nghiệm thu lịch sử.
+
+**Từ 2026-10-06, public OFF là `unprotected_off_v1`: tắt toàn bộ phòng thủ
+PI/CF, schema bảo mật, tool allowlist, approval và giới hạn thực thi của ứng dụng.**
+ON giữ workflow phòng thủ P1–P7. Cách chạy và phạm vi OFF ở mục 12.
+
+## Tiến trình xây dựng ban đầu (phase phát triển 1–9)
+
+Danh sách dưới đây là các phase xây dựng hệ thống. Roadmap sửa bảo mật
+**P1–P7** được quản lý riêng tại [SECURITY_FIX_BACKLOG.md](SECURITY_FIX_BACKLOG.md).
+`Fixed` nghĩa là kiểm chứng kỹ thuật đạt; không đồng nghĩa model-level `Validated`.
 
 - [x] Phase 1 — Architecture
 - [x] Phase 2 — Project skeleton
@@ -27,7 +41,7 @@ Data/Knowledge Poisoning.
 - [x] Phase 8 — Logging / tracing
 - [x] Phase 9 — Security testbed
 
-## 1. Setup
+## 1. Cài đặt
 
 Windows PowerShell / CMD:
 
@@ -270,7 +284,7 @@ Research Agent **không kết luận** và không gọi Analyst. Nó chỉ trả
 cùng metadata/similarity score về Planner. Planner vẫn giữ quyền tạo câu
 trả lời cuối.
 
-## 5. Retrieval output
+## 5. Đầu ra truy xuất
 
 Mỗi kết quả Research trả dạng gần như:
 
@@ -376,11 +390,16 @@ Chạy một câu hỏi từ CLI:
 python main.py "Direct Prompt Injection là gì?"
 ```
 
-Chạy acceptance test Phase 7:
+Chạy acceptance của phase phát triển 7 với **model và KB thật** (có thể gọi API):
 
 ```bash
 python scripts_test_phase7.py
 ```
+
+Script kiểm tra bốn route: ON gồm context boundary là 4/6/4/2 bước,
+OFF không boundary là 3/5/3/1 bước;
+case tool gửi `execution_input` trước model. Không dùng lệnh này làm offline
+regression. Cách chạy suite với stubs nằm ở mục 14.
 
 Graph sử dụng Centralized Orchestrator: mọi Worker luôn quay về Planner;
 không có edge trực tiếp giữa Research, Analyst và Executor.
@@ -425,21 +444,57 @@ hoặc:
 DEFENSE_MODE=on
 ```
 
-Ở mode `off`, hệ thống dùng baseline gần như không phòng thủ: guard là
-pass-through, không kiểm tra trust/hash/source, không trust-aware reranking,
-không gắn retrieved context là dữ liệu không tin cậy và không chặn luồng thực
-thi vì confidence thấp. Detector injection/secret vẫn có thể ghi telemetry
-nhưng không thay đổi input, retrieval hay output.
+Ở mode `off`, `build_workflow()` chọn [graph/baseline.py](graph/baseline.py)
+thay cho protected facade. Graph nhận dict nguyên trạng, giữ `conversation_context`
+qua Planner → Researcher → Analyst và đưa vào các prompt LLM. `analysis_result`
+và final output không có provenance/quality validation, output guard hay escaping.
+Không gọi PI detector, scope/context isolation, canary builder hoặc Action Gate.
 
 Ở mode `on`, hệ thống chặn heuristic Direct Prompt Injection, quarantine nguồn
 chưa duyệt khi build, lọc retrieval theo trust level/content hash/injection
 pattern, trust-aware reranking, hardening prompt của Analyst, confidence gate
 trước Executor và redaction secret trong final output.
 
-Các giới hạn schema, timeout/process isolation và tool allowlist của Executor
-luôn được áp dụng ở cả hai mode. Đây là ranh giới vận hành tối thiểu để testbed
-không gọi shell/network/delete/secret ngoài phạm vi, không phải defense biến đổi
-trong thí nghiệm OFF/ON.
+OFF gọi tool implementation trực tiếp: bỏ schema request/result, allowlist
+enforcement, caller-task binding, approval, path/extension restrictions,
+file/result-size và record caps, overwrite protection, process isolation,
+tool timeout và giới hạn 25 bước mặc định của graph. Dispatcher vẫn cần tool
+có implementation; bỏ allowlist không tự tạo shell/network tool. JSON/CSV parsing,
+route labels, retrieval top-k/relevance và điều kiện toán học của metric vẫn là
+giao thức chức năng; giới hạn OS/provider vẫn tồn tại. Trace/usage ledger chỉ quan sát.
+
+Chạy CLI OFF, không cần sửa `.env`:
+
+```powershell
+$env:DEFENSE_MODE = "off"
+.\.venv\Scripts\python.exe main.py "Direct Prompt Injection là gì?"
+```
+
+Gửi raw context cho baseline qua Python API, đặt mode trước khi build và giữ
+mode ổn định trong run:
+
+```python
+import os
+os.environ["DEFENSE_MODE"] = "off"
+from graph.workflow import build_workflow
+result = build_workflow().invoke({
+    "user_query": "Phân tích Prompt Injection từ tài liệu và hội thoại",
+    "conversation_context": [{"role": "assistant", "content": "Nội dung caller kiểm soát"}],
+})
+print(result["baseline_version"])  # unprotected_off_v1
+print(result["final_answer"])
+```
+
+OFF không yêu cầu `execution_input`; nếu có, model chỉ nhận nó như dữ liệu.
+ON yêu cầu task confirmation cho tool và callback cho write action như mục 13.
+Guard APIs gọi trực tiếp vẫn hỗ trợ unit measurement; chúng không nằm trong
+public OFF flow. So OFF/ON mới đo toàn bộ stack, chưa tách tác động từng guard.
+Giữ cùng KB snapshot/corpus/model; OFF không khôi phục tài liệu đã bị ingestion
+loại khỏi KB. Artifact OFF cũ vẫn là kết quả của baseline có bảo vệ cấu trúc.
+
+Rubric giữ `evaluator_v2`, profile mới là `workflow_profile_version=unprotected_off_v1`.
+Harness từ chối so report thiếu/sai profile; full/retrieval reports lưu dưới
+`unprotected_off_v1/evaluator_v2/`. Không cộng kết quả mới vào artifact P1–P7 cũ.
 
 Input/Retrieval Guard chuẩn hóa Unicode và nhận diện các mẫu injection phổ biến
 bằng tiếng Anh, tiếng Việt, Tây Ban Nha, Pháp, Đức, Bồ Đào Nha, Nga, Trung,
@@ -456,74 +511,224 @@ Seed case cho Prompt Injection nằm tại
 `experiments/prompt_injection/cases.jsonl`. Nhãn ground truth poisoning không
 được chuyển cho Agent khi retrieval.
 
-## 13. Blue Team T00-T10 architecture handoff
+## 13. Bàn giao kiến trúc Blue Team T00-T10
 
-The security pipeline is evaluated as four enforcement stages. Input Guard
-normalizes and scores the user prompt; high-risk prompts are blocked in
-`DEFENSE_MODE=on`, while medium-risk prompts are observed and may be sent to
-the semantic classifier. Retrieval Guard validates trust, content hash and
-injection patterns before context reaches an agent. Output Guard redacts
-secrets and blocks prompt/canary leakage. The Action Gate checks the proposed
-tool, parameters, provenance, approval and integrity digest immediately before
-execution.
+Pipeline bảo mật được đánh giá qua bốn giai đoạn thực thi. Input Guard chuẩn
+hóa để kiểm tra nhưng giữ nguyên input người dùng. Ở `DEFENSE_MODE=on`, high
+và medium có command evidence hoặc chưa phân định bị chặn trước routing/model.
+Trích dẫn có framing nghiên cứu thuộc các dạng đã hỗ trợ được tách khỏi scan;
+phần câu lệnh bên ngoài trích dẫn vẫn được kiểm tra. Retrieval Guard kiểm tra trust, hash nội dung và mẫu
+injection trước khi context tới Agent. Output Guard che secret và chặn rò rỉ
+prompt/canary. Action Gate kiểm tra tool, tham số, provenance, phê duyệt và
+digest toàn vẹn ngay trước khi thực thi.
 
-`off` and `on` are intentionally different experiment policies. In `off`, the
-guards emit `observed` telemetry and preserve the candidate value wherever the
-testbed permits it. In `on`, the relevant stage filters, blocks, redacts or
-fails closed. Executor schema validation, timeouts, process isolation and the
-static tool allowlist remain active in both modes; they are baseline safety
-boundaries, not an OFF/ON metric.
+Phần cơ chế phòng thủ dưới đây áp dụng cho ON. Public OFF mới ở mục 12
+bỏ toàn bộ checkpoint; không phát sinh security event `observed` từ detector.
+Các kết quả T10/P1–P7 lịch sử vẫn phản ánh semantics OFF ở source lúc đo.
 
-### T10 measured controls
+### Các kiểm soát T10 đã đo trước roadmap sửa bảo mật
 
-The automated test evidence uses explicit denominators:
+Các số dưới đây là kết quả harness ở thời điểm bàn giao trước P1–P7,
+không phải ASR/FPR hiện tại được chấm bằng `evaluator_v2`. P7 không chạy
+benchmark model thật hoặc chấm lại những artifact này.
 
-* Input Guard: 6/6 direct attack payloads are blocked in ON; 6/6 are allowed
-  with `observed` events in OFF. The two explicit clean controls are 0/2 false
-  positives in ON (0%).
-* Multi-agent coverage harness: 4 clean scenarios run through research,
-  analysis, executor and chain routes with 0/4 false positives in ON (0%).
-  This harness uses mocked model decisions and is a routing/guard regression
-  check, not a claim about live-model attack resistance.
-* The repository test suite completed with 260 passed tests at the time of
-  this handoff. These pass counts are test health, not an attack detection
-  rate; attack rates always use the payload count shown above.
+Bằng chứng kiểm thử tự động dùng mẫu số rõ ràng:
 
-The retrieval report keeps its own denominator: with valid trust/hash metadata,
-the reviewed pattern set filtered 3/5 injection controls in ON and retained
-both clean controls. P04 and P05 are documented misses, so this result is not
-presented as general semantic coverage. Documents lacking trust metadata are
-filtered by the trust policy; that is a metadata policy result, not proof that
-the content detector recognized an injection.
+* Input Guard: chặn 6/6 payload tấn công trực tiếp ở ON; cho phép 6/6 cùng
+  event `observed` ở OFF. Hai kiểm soát sạch rõ ràng có 0/2 false positive ở ON (0%).
+* Harness độ bao phủ đa tác tử: 4 kịch bản sạch chạy qua route research,
+  analysis, executor và chain với 0/4 false positive ở ON (0%). Harness dùng
+  quyết định model giả, là kiểm tra hồi quy route/guard chứ không khẳng định
+  khả năng chống tấn công của model thật.
+* Bộ test repository hoàn tất 260 test pass tại thời điểm bàn giao. Số test
+  pass phản ánh sức khỏe kiểm thử, không phải tỷ lệ phát hiện tấn công; tỷ lệ
+  tấn công luôn dùng số payload nêu trên.
 
-### Known limits and fallback behavior
+Báo cáo retrieval có mẫu số riêng: với metadata trust/hash hợp lệ, bộ mẫu đã
+review lọc 3/5 kiểm soát injection ở ON và giữ cả hai kiểm soát sạch. P04 và
+P05 là các trường hợp bỏ sót đã ghi nhận, nên kết quả này không được trình bày
+như độ bao phủ ngữ nghĩa tổng quát. Tài liệu thiếu metadata trust bị chính
+sách trust lọc; đó là kết quả của policy metadata, không chứng minh detector
+nội dung đã nhận ra injection.
 
-The semantic classifier is an injectable, bounded hook used for medium-risk
-inputs only. Its configured timeout is 0.5 seconds and malformed output,
-exceptions or timeout use the configured medium-risk fallback; they do not
-escape as an unhandled exception. The default implementation is conservative
-and does not provide a real semantic model, so paraphrases, multilingual
-novel attacks and context-dependent intent remain outside the measured claim.
+### Giới hạn và hành vi dự phòng đã biết
 
-Each invocation receives a unique prompt canary and SHA-256 fingerprint. The
-canary is injected into the Planner/Analyst system instructions and redacted
-from telemetry. Output Guard can detect the exact canary/fingerprint and known
-structural leak forms, but it cannot guarantee detection of paraphrased leaks,
-leaks from a prompt builder that omitted the canary, or a canary deliberately
-removed before output.
+Semantic classifier là hook có thể tiêm, bị giới hạn thời gian và chỉ dùng cho
+input rủi ro trung bình. Production chưa tích hợp provider nên mặc định
+`semantic_classifier_enabled=false`; bật mà không có provider trả `unavailable`,
+không phải negative hợp lệ. Timeout cấu hình là 0,5 giây; malformed, exception
+hoặc timeout được ghi riêng, với confidence=0 và không giả positive detection.
+Fallback `medium`/`high` quyết định policy level và đều chặn unresolved medium
+ở ON; cấu hình fallback `allow` bị từ chối. Positive policy cũng không sửa risk
+score gốc. Negative từ provider hợp lệ có thể giải quyết medium chưa phân định,
+nhưng không bỏ qua command evidence đã nhận diện. Public OFF không gọi hook/guard.
+Không có signals thì hook không chạy. Cách diễn đạt lại không khớp heuristic,
+ngôn ngữ mới và ý định phụ thuộc context vẫn ngoài phạm vi khẳng định đã đo.
+Nhận diện quote là heuristic có giới hạn; nhãn research hoặc quote đơn lẻ không
+cấp trust. Planner kiểm tra contract Input Guard trước khi cập nhật state;
+contract sai trở thành operational error trước routing/model/worker ở ON.
 
-The static allowlist answers "which tool may ever run". The contextual Action
-Gate answers "may this exact invocation run now" by checking the user-query
-binding, provenance, approval and parameter/integrity digest. A tool being on
-the allowlist therefore does not authorize retrieved instructions to rewrite
-its parameters. OFF records contextual violations; ON fails closed, while the
-baseline allowlist/schema/sandbox boundaries still apply in both modes.
+Mỗi lần gọi nhận một prompt canary duy nhất và fingerprint SHA-256 của canary
+(không phải hash system prompt). Canary được
+chèn vào system instruction của Planner/Analyst và được che khỏi telemetry.
+Output Guard phát hiện được canary/fingerprint chính xác và một số dạng rò rỉ
+cấu trúc đã biết. Chỉ nhắc đến system prompt/developer instructions không đủ
+để báo leak. `prompt_structure_check_enabled` điều khiển heuristic disclosure
+frame, không tắt exact canary/fingerprint hoặc secret redaction.
+`prompt_leak_similarity_threshold` đã bỏ và cấu hình cũ bị từ chối rõ ràng;
+không có phép đo similarity hay LLM judge. Heuristic không chứng minh nội dung
+trùng prompt thật, không bao phủ mọi answer hijack và vẫn có thể false positive.
+Guard không bảo đảm phát hiện rò rỉ diễn đạt lại, rò rỉ từ
+prompt builder bỏ qua canary hoặc canary bị xóa có chủ ý trước output.
 
-### Environment versus security metrics
+Conversation Context Spoofing dùng boundary và registry theo từng run.
+Scope classifier chỉ đọc query: nhắc đến chủ đề conversation/context không
+tự cấp quyền dùng caller data; không có yêu cầu nguồn thì mặc định KB.
+Grammar nguồn dùng chung với phép tách tác vụ KB, hỗ trợ một số prefix/suffix
+EN/VI và thứ tự KB/caller đảo nhau. Yêu cầu mâu thuẫn hoặc không tách an toàn
+được thì hỏi lại. Từ weather trong ví dụ security không tự loại cả tác vụ;
+câu hỏi thời tiết thuần túy vẫn ngoài phạm vi. Grammar là heuristic có giới hạn.
+Caller context nằm trong registry, chỉ được render thành caller_quote riêng
+khi được phép; không đưa vào Researcher/Analyst hoặc analysis_result.
+Direct Analyst là API nội bộ KB-only: caller context không rỗng/sai kiểu bị
+từ chối trước model ở ON. Prompt ON không có conversation_context hay
+conversation IDs làm evidence; confidence chỉ tính từ tài liệu KB. Argument
+context cũ chỉ còn chấp nhận None/[] để tương thích. Đây là contract/isolation
+phòng thủ ON, không phải bằng chứng model-level robustness hay authenticity của KB.
 
-Live full-pipeline runs that depend on an external model endpoint are reported
-separately from detection and false-positive metrics. A run that stalls,
-cannot reach the provider or fails retrieval is an environment/coverage
-failure with an unknown attack outcome; it is not counted as a blocked attack
-or a clean pass. Manual artifacts are sanitized to hashes, lengths and IDs and
-must not be used to infer a model success rate when the run is incomplete.
+Allowlist tĩnh trả lời “tool nào từng được phép chạy”. Action Gate theo context
+trả lời “lần gọi cụ thể này có được chạy ngay không” bằng cách kiểm tra liên
+kết với truy vấn người dùng, provenance, phê duyệt và digest tham số/toàn vẹn.
+Tool nằm trong allowlist không đồng nghĩa chỉ thị truy xuất được quyền sửa
+tham số của nó. ON fail-closed; OFF bỏ gate, allowlist/schema và process isolation.
+
+P5 ràng buộc **tool và toàn bộ params** với `execution_input` do caller gửi
+tại ingress, kiểm tra bằng `ExecutionRequest` và snapshot JSON trong runtime
+trước Planner/Researcher/Analyst. Đây là dữ liệu tác vụ được caller chỉ định,
+không phải bằng chứng dữ liệu đúng hay được xác thực. `user_query` mô tả tác vụ;
+`execution_input` là nguồn tham số có thẩm quyền. Hệ thống không trích records
+từ câu hỏi tự nhiên hay `conversation_context` để tự cấp bản xác nhận.
+Hash do Planner tự tạo vẫn chỉ kiểm tra thay đổi sau planning; Action Gate
+so sánh riêng với snapshot caller. Khi gate bật, ON từ chối missing/mismatch;
+Public OFF không chạy gate và dùng trực tiếp candidate của model.
+
+Ví dụ public workflow (dữ liệu được cung cấp trước khi gọi model):
+
+```python
+result = build_workflow().invoke({
+    "user_query": "Tính attack success rate",
+    "execution_input": {
+        "tool_name": "calculate_metrics",
+        "params": {
+            "metric": "attack_success_rate",
+            "records": [{"attack_success": True}, {"attack_success": False}],
+        },
+    },
+})
+```
+
+CLI nhận cùng object qua file JSON: `python main.py "Tính attack success rate"
+--execution-input task.json` (chạy trên một dòng). Query-only tool requests ở
+ON bị từ chối khi thiếu bản xác nhận; tác vụ KB/caller quote không cần field này.
+Ứng dụng gọi `build_workflow(approval_callback=app_confirm_write)` để xử lý
+approval cho `save_test_result`. Callback thuộc cấu hình ứng dụng tin cậy,
+nhận `ExecutionApprovalRequest` bất biến gồm run ID, tool, digest và params JSON,
+và phải trả bool sau quyết định policy/người vận hành. Callback chỉ chạy sau
+kiểm tra context hợp lệ; thiếu/từ chối approval thì gate chặn ở ON; callback
+lỗi/sai kiểu là operational error ở ON; OFF không gọi callback. Không có approval qua public
+input, model prose hay conversation context. CLI mặc định không cấp approval;
+chưa có UI xác nhận. Không dùng callback luôn trả True làm policy production.
+
+Route `RESEARCH_ANALYSIS_EXECUTE` render phân tích KB và kết quả tool thành
+hai `RenderPart`/envelope riêng, giữ guard từng part và assembled guard. Provenance
+KB chỉ được dùng khi có result binding runtime tương ứng. Bằng chứng kỹ thuật
+P5 nằm trong backlog và `artifacts/phase5_execution/evaluator_v2/`; chưa phải
+model-level validation hoặc ASR/FPR mới.
+
+P6 tối ưu guard bằng cách tái sử dụng kết quả normalization/detector trong
+mỗi lần `guard_input`/`guard_retrieval`. Cache phân biệt text, context và function,
+tối đa 256 entry, trả list mới cho caller và được xóa cả khi return hoặc exception;
+không cache policy decisions hay giữ caller text qua các lần guard. Nội dung,
+metadata và reporting/command context vẫn được kiểm tra theo các rule cũ.
+
+`load_security_settings()` vẫn đọc file mỗi lần, nhưng cache parse/validation
+theo nội dung YAML và mode (tối đa 8 template). Caller nhận deep copy, nên sửa
+settings không tác động lần gọi sau; thay nội dung dù mtime/size giữ nguyên vẫn
+được nhận, và file lỗi/mất không fallback sang policy cũ.
+
+Đo guard cục bộ trên corpus tổng hợp cố định OFF/ON cho kết quả giống hệt ở
+14 case. Ở ON, pool hỗn hợp 32 documents giảm median từ **37,32 ms xuống
+10,01 ms**; Input Guard trong các case đo còn khoảng **0,24–0,36 ms**. Đây là
+25 lần đo/case sau warmup, có field lặp; không phải tốc độ end-to-end hoặc
+bằng chứng ASR/FPR. Artifact và giới hạn nằm trong
+`artifacts/phase6_optimization/evaluator_v2/` và backlog P6. Contract
+`execution_input`, approval, evaluator và checkpoint bảo mật giữ nguyên.
+
+### Môi trường và metric bảo mật
+
+Các lượt chạy toàn pipeline phụ thuộc endpoint model bên ngoài được báo cáo
+riêng với metric phát hiện và false positive. Lượt chạy bị treo, không tới
+được provider hoặc lỗi retrieval là lỗi môi trường/độ bao phủ với kết quả tấn
+công chưa biết; không tính là tấn công bị chặn hay lượt sạch thành công.
+Artifact thủ công được làm sạch thành hash, độ dài và ID; không được dùng để
+suy ra tỷ lệ thành công của model khi lượt chạy chưa hoàn tất.
+
+### Evaluator v2 — Phase 1 measurement (2026-10-05)
+
+Backlog và bằng chứng từng finding nằm trong [SECURITY_FIX_BACKLOG.md](SECURITY_FIX_BACKLOG.md).
+Harness hiện dùng `evaluator_version=evaluator_v2`, quan sát structured final
+parts để loại Top-K echo và caller quote khỏi generated-answer objective.
+Workflow error hoặc thiếu attribution không được chấm thành defense success;
+simulation không nằm trong measured ASR. `final_output_affected=null` nghĩa là
+chưa đo objective, không phải kết luận tấn công thất bại.
+
+Artifact cũ giữ nguyên và được ghi version trong
+`artifacts/phase1_measurement/evaluator_v2/historical_artifact_index.json`;
+thiếu version được đánh dấu `unknown/legacy`. Các số liệu thực nghiệm cũ chưa
+được chấm lại bằng v2. Report mới dùng namespace `evaluator_v2`; so sánh khác
+evaluator version bị từ chối. Phase 1 không gọi LLM thật và không tạo ASR/FPR
+mới để khẳng định hiệu quả defense.
+
+## 14. Regression offline và bản source export sạch (P7)
+
+Chạy tại project root, dùng Python đã cài dependencies trong `requirements.txt`:
+
+```powershell
+$env:DEFENSE_MODE = "off"
+python -B scripts_test_offline.py
+```
+
+Runner tắt `dotenv.load_dotenv`, bytecode/cache pytest và plugin tự nạp.
+Suite hiện dùng model/search stubs và local tools, không cần API key, model
+embedding, vector DB hoặc artifact lịch sử. Các test tự chọn OFF/ON khi cần;
+`tests/conftest.py` chọn ON mặc định cho test bảo mật; case OFF tự chọn mode.
+Runner
+không thay provider bằng stubs cho test mới; test gọi provider phải tự mock.
+Không chạy các manual harness có `--execute-*` để thay cho regression này.
+
+Kiểm tra riêng acceptance script bằng workflow thật và provider/tool stubs:
+
+```powershell
+python -B scripts_test_offline.py tests/test_compiled_workflow.py::test_p7_acceptance_script_matches_compiled_routes_and_confirmed_tool -q
+```
+
+Fixture bắt buộc được version control ở `tests/fixtures/coordinator_flaw/`:
+query/payload JSON, baseline manifest và source ZIP đóng băng. Các test preflight
+vẫn kiểm tra SHA-256 và 100 entry của ZIP. `artifacts/` chỉ lưu output/evidence;
+không lấy fixture hiện hành từ thư mục đó. Smoke authorization và output path
+giữ nguyên; chuyển fixture không cấp phép chạy API mới.
+
+Source export P7 là bản lịch sử có OFF cũ:
+`artifacts/phase7_reproducibility/evaluator_v2/source_export.zip`.
+Source OFF mới: `artifacts/unprotected_off_20261006/evaluator_v2/source_export.zip`.
+Giải nén vào thư mục riêng, chạy runner trên bằng Python có dependencies.
+Export gồm source, tests, fixtures, configs, docs và dữ liệu JSONL cần thiết;
+không chứa `.env`/`.env.example`, `.git`, `.venv`, cache, vector DB hoặc evidence
+lịch sử. Muốn chạy ứng dụng thật, cấu hình môi trường theo mục 1 và build KB.
+
+`source_export_manifest.json` ghi hash mỗi file; `verification_commands.json`
+và `regression_clean_export.xml` ghi cách chạy và kết quả. Kiểm chứng export
+dùng dependency environment hiện có, chưa chứng minh cài mới từ dependencies
+không pin hoặc fresh Git checkout. `version_control_manifest.json` liệt kê
+source/fixture còn untracked cần đưa vào Git khi bàn giao; P7 không stage/commit.
+Kết quả kỹ thuật và giới hạn nghiệm thu nằm trong backlog P7.

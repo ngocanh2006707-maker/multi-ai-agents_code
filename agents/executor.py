@@ -30,7 +30,9 @@ from pydantic import ValidationError
 
 from agents.executor_schema import ExecutionRequest, ExecutionResult
 from graph.state import AgentState
-from security.action_gate import ActionGateDecision, evaluate_action_gate
+from security.action_gate import ActionGateDecision, ExecutionApprovalRequest, evaluate_action_gate, params_digest
+from security.context_guard import WorkflowRuntimeContext
+from security.config import load_security_settings
 from security.models import SecurityEvent, security_event_to_dict
 from tools.registry import ToolNotAllowedError, get_tool
 
@@ -39,7 +41,7 @@ MAX_TOOL_RESULT_BYTES = 100_000
 
 
 class ToolProcessError(RuntimeError):
-    """Tool process thất bại nhưng không đưa message nội bộ ra shared state."""
+    """Process chạy tool thất bại nhưng không đưa message nội bộ ra shared state."""
 
     def __init__(self, error_type: str):
         super().__init__(error_type)
@@ -47,7 +49,7 @@ class ToolProcessError(RuntimeError):
 
 
 def _tool_worker(result_queue, tool_name: str, params: dict) -> None:
-    """Entry point tối thiểu chạy trong process cô lập."""
+    """Điểm vào tối thiểu chạy trong process cô lập."""
     try:
         result = get_tool(tool_name)(**params)
         encoded = json.dumps(
@@ -69,6 +71,12 @@ def _tool_timeout_seconds() -> float:
     if not 0.1 <= timeout <= 120.0:
         raise ValueError("EXECUTOR_TOOL_TIMEOUT_SECONDS phải nằm trong [0.1, 120]")
     return timeout
+
+
+def _execute_tool_direct(tool_name: str, params: dict):
+    """OFF executes the implementation without allowlist/schema/process gates."""
+    from graph.baseline import execute_tool
+    return execute_tool(tool_name, params)
 
 
 def _execute_tool_isolated(tool_name: str, params: dict):
@@ -172,8 +180,13 @@ def _result(status: str, tool: str, *, result=None, error: str | None = None) ->
     ).model_dump()
 
 
-def executor_node(state: AgentState) -> AgentState:
-    """Validate request, kiểm tra allowlist rồi gọi đúng một tool."""
+def executor_node(
+    state: AgentState, *, runtime_context: WorkflowRuntimeContext | None = None,
+) -> AgentState:
+    """Protected execution in ON; direct implementation dispatch in OFF."""
+    if not load_security_settings().defense_enabled:
+        from graph.baseline import executor_node as baseline_executor
+        return baseline_executor(state, runtime_context=runtime_context)
     raw_request = state.get("execution_request")
     try:
         request = ExecutionRequest.model_validate(raw_request)
@@ -190,22 +203,40 @@ def executor_node(state: AgentState) -> AgentState:
             "errors": errors,
         }
 
-    decision = evaluate_action_gate(
-        user_query=state.get("user_query"),
-        tool_name=request.tool_name,
-        params=request.params,
-        params_source=(
-            state.get("execution_params_source") or state.get("params_source")
-        ),
-        approval=(
-            state.get("execution_approval")
-            if "execution_approval" in state
-            else state.get("approval_granted")
-        ),
-        destructive=state.get("execution_destructive"),
-        params_modified=state.get("execution_params_modified"),
-        expected_params_digest=state.get("execution_params_digest"),
-    )
+    try:
+        confirmed = runtime_context.confirmed_execution_request() if runtime_context else None
+        gate_context = {
+            "user_query": runtime_context.original_query if runtime_context else state.get("user_query"),
+            "tool_name": request.tool_name,
+            "params": request.params,
+            "params_source": state.get("execution_params_source") or state.get("params_source"),
+            "confirmed_request": confirmed,
+            "destructive": state.get("execution_destructive"),
+            "params_modified": state.get("execution_params_modified"),
+            "expected_params_digest": state.get("execution_params_digest"),
+        }
+        decision = evaluate_action_gate(**gate_context, approval=False)
+        if (
+            decision.reason_code == "approval_required"
+            and runtime_context is not None
+            and runtime_context.approval_callback is not None
+        ):
+            approval = runtime_context.approval_callback(ExecutionApprovalRequest(
+                run_id=runtime_context.run_id, tool_name=request.tool_name,
+                params_digest=params_digest(request.params),
+                params_json=json.dumps(request.params, ensure_ascii=False, sort_keys=True, allow_nan=False),
+            ))
+            if type(approval) is not bool:
+                raise TypeError("approval callback must return bool")
+            runtime_context.registry_snapshot()
+            decision = evaluate_action_gate(**gate_context, approval=approval)
+    except Exception:
+        return {
+            **state, "current_agent": "executor", "tool_called": request.tool_name,
+            "execution_result": _result("error", request.tool_name, error="Trusted execution context or approval is unavailable."),
+            "errors": [*(state.get("errors") or []), "executor: trusted_execution_context_error"],
+        }
+
     security_events = list(state.get("security_events", []))
     gate_event = _action_gate_event(
         request.tool_name,
@@ -258,8 +289,8 @@ def executor_node(state: AgentState) -> AgentState:
         )
     )
     try:
-        # Lookup phía trên là permission check; process con lookup lại cùng registry
-        # đã khóa trước khi thực thi.
+        # Tra cứu phía trên là bước kiểm tra quyền; process con tra cứu lại
+        # cùng registry đã khóa trước khi thực thi.
         del tool
         tool_result = _execute_tool_isolated(request.tool_name, request.params)
         return {

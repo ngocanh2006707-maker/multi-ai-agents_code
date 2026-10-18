@@ -1,4 +1,4 @@
-"""Acceptance test cho tracing trên compiled LangGraph workflow."""
+"""Kiểm thử nghiệm thu tracing trên workflow LangGraph đã biên dịch."""
 
 import argparse
 import json

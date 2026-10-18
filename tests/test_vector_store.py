@@ -1,4 +1,4 @@
-"""Regression tests for Chroma collection metadata handling."""
+"""Kiểm thử hồi quy việc xử lý metadata của collection Chroma."""
 
 from knowledge_base.vector_store import _validate_embedding_fingerprint
 

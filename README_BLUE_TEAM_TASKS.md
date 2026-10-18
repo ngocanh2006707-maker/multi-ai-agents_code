@@ -1,5 +1,12 @@
 # Kế hoạch nhiệm vụ Blue Team
 
+> **Tài liệu kế hoạch lịch sử T00–T10.** Các mô tả “chưa có” và chính sách
+> dưới đây phản ánh thời điểm lập kế hoạch, không phải source sau P1–P7.
+> Trạng thái hiện hành xem [security backlog](SECURITY_FIX_BACKLOG.md) và
+> [báo cáo kiến trúc/kết quả](BAO_CAO_KIEN_TRUC_VA_KET_QUA_PHONG_THU.md).
+> Phạm vi hiện tại là PI và Conversation Context Spoofing; lịch sử được giữ
+> để truy vết, không dùng trực tiếp làm kết luận báo cáo hiện hành.
+
 Tài liệu này là kế hoạch tuần tự để bổ sung các lớp phòng thủ Prompt Injection cho project multi-agent AI security. Mỗi task có phạm vi file riêng, test riêng, acceptance criteria và commit riêng. Chỉ chuyển sang task tiếp theo sau khi task hiện tại đã được nghiệm thu. README này là tài liệu thực thi, không phải script chạy trực tiếp.
 
 ## Trạng thái nền của project
@@ -33,7 +40,7 @@ Tài liệu này là kế hoạch tuần tự để bổ sung các lớp phòng 
 | Action Gate | Chỉ ghi telemetry cho ngữ cảnh không phù hợp; vẫn giữ allowlist, schema, process isolation, timeout và sandbox | Block action không phù hợp |
 | Tool allowlist | Luôn áp dụng | Luôn áp dụng |
 
-## Telemetry contract
+## Hợp đồng telemetry
 
 Task T00.5 sẽ chuẩn hóa event dùng chung:
 
@@ -54,7 +61,7 @@ Task T00.5 sẽ chuẩn hóa event dùng chung:
 
 `restricted` chỉ được dùng khi workflow thật sự hạn chế route hoặc quyền. Hiện project chưa có `route_restricted` trong state/Planner, nên trước T03 mọi medium-risk chỉ ghi `observed`. `detail` không được chứa system prompt, API key, secret hoặc payload nhạy cảm nguyên văn; nếu cần đối chiếu dùng hash hoặc metadata an toàn.
 
-## T00 — Baseline read-only
+## T00 — Baseline chỉ đọc
 
 Mục tiêu: ghi lại behavior trước khi thêm lớp mới.
 
@@ -133,7 +140,7 @@ Commit:
 feat(security): improve prompt canonicalization
 ```
 
-## T02 — Composite prompt risk scoring
+## T02 — Chấm điểm rủi ro prompt tổng hợp
 
 Mục tiêu: chấm điểm theo tổ hợp tín hiệu thay vì block vì một keyword.
 
@@ -226,7 +233,7 @@ Commit:
 feat(security): harden retrieval guard against indirect injection
 ```
 
-## T05 — Semantic classifier cho medium risk
+## T05 — Bộ phân loại ngữ nghĩa cho rủi ro trung bình
 
 Mục tiêu: xử lý diễn đạt gián tiếp sau rule-based scoring.
 
@@ -262,7 +269,7 @@ Commit:
 feat(security): add semantic classifier for ambiguous prompts
 ```
 
-## T06 — Prompt canary injection
+## T06 — Chèn prompt canary
 
 Mục tiêu: chèn canary theo session hoặc invocation để phát hiện system prompt leak.
 
@@ -349,7 +356,7 @@ Commit:
 feat(security): add executor action gate
 ```
 
-## T09 — Full pipeline regression matrix
+## T09 — Ma trận hồi quy toàn pipeline
 
 Mục tiêu: kiểm tra các lớp khi chạy cùng workflow.
 
@@ -396,7 +403,7 @@ Commit:
 docs(security): document Blue Team defense architecture
 ```
 
-## Acceptance checklist
+## Danh sách kiểm tra nghiệm thu
 
 Trước khi chuyển task hoặc push:
 

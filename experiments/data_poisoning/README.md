@@ -1,4 +1,4 @@
-# Data poisoning experiments
+# Thí nghiệm Data Poisoning
 
 Đặt clean documents trong `data/clean/` và poisoned documents trong
 `data/poisoned/`. Ground-truth fields (`is_poisoned`, `attack_type`,

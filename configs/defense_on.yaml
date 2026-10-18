@@ -23,10 +23,10 @@ security:
   prompt_risk_high_threshold: 0.80
   retrieval_risk_medium_threshold: 0.55
   retrieval_risk_high_threshold: 0.80
-  semantic_classifier_enabled: true
+  semantic_classifier_enabled: false
   semantic_classifier_timeout_seconds: 0.5
   semantic_positive_policy: high
   semantic_fallback_policy: medium
-  prompt_leak_similarity_threshold: 0.85
+  prompt_structure_check_enabled: true
   action_gate_enabled: true
   action_gate_require_provenance: true

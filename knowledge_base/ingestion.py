@@ -1,4 +1,4 @@
-"""Validation + cleaning + chunking cho Knowledge Base baseline."""
+"""Kiểm tra + làm sạch + chia chunk cho Knowledge Base baseline."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _sha256(text: str) -> str:
 
 
 def validate_document(raw_doc: dict, *, use_managed_trust: bool = True) -> dict:
-    """Validate schema tối thiểu và trả document đã chuẩn hóa."""
+    """Kiểm tra schema tối thiểu và trả document đã chuẩn hóa."""
     missing = sorted(field for field in _REQUIRED_FIELDS if field not in raw_doc)
     if missing:
         raise ValueError(f"Document thiếu field bắt buộc: {missing}")
@@ -60,14 +60,14 @@ def validate_document(raw_doc: dict, *, use_managed_trust: bool = True) -> dict:
         "title": str(raw_doc["title"]).strip(),
         "source": source,
         "timestamp": str(raw_doc["timestamp"]).strip(),
-        # Defense Off giữ nguyên claim của tài liệu để tạo baseline ít phòng thủ.
+        # Defense Off giữ nguyên khẳng định của tài liệu để tạo baseline ít phòng thủ.
         # Defense On mới dùng trust do registry của hệ thống quản lý.
         "trust_level": (
             trust_assignment.trust_level
             if use_managed_trust
             else claimed_trust_level
         ),
-        # Chỉ giữ claim của tài liệu để audit; không dùng cho rerank/guard.
+        # Chỉ giữ khẳng định của tài liệu để audit; không dùng cho rerank/guard.
         "claimed_trust_level": claimed_trust_level,
         "trust_managed": use_managed_trust,
         "trust_policy_id": trust_assignment.policy_id,
@@ -116,7 +116,7 @@ def ingest_jsonl(
     *,
     use_managed_trust: bool = True,
 ) -> list[dict]:
-    """Đọc toàn bộ JSONL và trả danh sách chunk đã validate."""
+    """Đọc toàn bộ JSONL và trả danh sách chunk đã kiểm tra."""
     return ingest_jsonl_partitioned(
         path,
         chunk_size=chunk_size,
@@ -134,7 +134,7 @@ def ingest_jsonl_partitioned(
     enforce_source_allowlist: bool,
     use_managed_trust: bool = True,
 ) -> IngestionBatch:
-    """Validate tài liệu và tách nguồn chưa duyệt khi policy được enforce."""
+    """Kiểm tra tài liệu và tách nguồn chưa duyệt khi policy được áp dụng."""
     chunks: list[dict] = []
     quarantined: list[dict] = []
     seen_document_ids: set[str] = set()

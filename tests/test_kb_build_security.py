@@ -1,4 +1,4 @@
-"""Kiểm tra build KB fail-closed trước khi gọi embedding/vector store."""
+"""Kiểm tra xây KB theo fail-closed trước khi gọi embedding/vector store."""
 
 import json
 import sys

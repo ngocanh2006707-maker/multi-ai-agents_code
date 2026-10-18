@@ -70,7 +70,7 @@ def _calculate_retrieval_metric(
         ):
             raise TypeError(f"relevant_ids tại index {index} phải là list[str]")
 
-        # Một document chỉ được tính một lần nhưng vẫn giữ thứ hạng đầu tiên.
+        # Một tài liệu chỉ được tính một lần nhưng vẫn giữ thứ hạng đầu tiên.
         retrieved = list(dict.fromkeys(retrieved_value))
         relevant = set(relevant_value)
         top = retrieved[:k] if k is not None else retrieved
@@ -109,6 +109,11 @@ def calculate_metrics(
     xem là đủ điều kiện. Nếu field xuất hiện, chỉ record có giá trị true được
     đưa vào mẫu số.
     """
+    return _calculate_metrics(metric, records, k, record_limit=MAX_METRIC_RECORDS)
+
+
+def _calculate_metrics(metric, records, k=None, *, record_limit=None):
+    """Shared arithmetic; the protected public tool supplies its record cap."""
     metric_name = str(metric).strip().lower().replace("@", "_at_").replace("-", "_")
     if not isinstance(records, list) or not all(
         isinstance(record, dict) for record in records
@@ -116,8 +121,8 @@ def calculate_metrics(
         raise TypeError("records phải là list[dict]")
     if not records:
         raise ValueError("records không được rỗng")
-    if len(records) > MAX_METRIC_RECORDS:
-        raise ValueError(f"records vượt giới hạn {MAX_METRIC_RECORDS} items")
+    if record_limit is not None and len(records) > record_limit:
+        raise ValueError(f"records vượt giới hạn {record_limit} items")
     if metric_name in _RETRIEVAL_METRICS:
         return _calculate_retrieval_metric(metric_name, records, k)
     if metric_name not in _METRIC_FIELDS:

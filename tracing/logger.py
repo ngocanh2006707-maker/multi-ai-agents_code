@@ -168,7 +168,7 @@ def get_trace_file() -> Path:
 
 
 def write_trace_event(event: TraceEvent) -> Path:
-    """Append đúng một JSON object trên một dòng và trả đường dẫn log."""
+    """Ghi thêm đúng một đối tượng JSON trên một dòng và trả đường dẫn log."""
     path = get_trace_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(
@@ -196,7 +196,7 @@ def write_trace_event(event: TraceEvent) -> Path:
 
 
 def _rotate_trace_file(path: Path, backup_count: int) -> None:
-    """Rotate file hiện tại, chỉ giữ đúng số backup đã cấu hình."""
+    """Xoay file hiện tại, chỉ giữ đúng số bản sao lưu đã cấu hình."""
     if backup_count == 0:
         path.unlink(missing_ok=True)
         return
@@ -226,7 +226,7 @@ def log_step(
     final_output_affected: bool | None = None,
     security_events: list[dict] | None = None,
 ) -> Path:
-    """Validate, sanitize và ghi một trace event."""
+    """Kiểm tra, làm sạch và ghi một trace event."""
     event = TraceEvent(
         trace_id=trace_id,
         sequence=sequence,

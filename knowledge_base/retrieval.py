@@ -1,4 +1,4 @@
-"""Semantic retrieval; trust-aware reranking chỉ bật ở Defense On."""
+"""Truy xuất ngữ nghĩa; xếp hạng lại có xét trust chỉ bật ở Defense On."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ def _minimum_similarity() -> float:
     return value
 
 def _cosine_distance_to_similarity(distance: float) -> float:
-    # Chroma cosine distance = 1 - cosine_similarity. Cosine similarity
-    # về lý thuyết có thể âm, nhưng score hiển thị cho Agent được chặn [0,1].
+    # Khoảng cách cosine của Chroma = 1 - độ tương đồng cosine. Độ tương đồng
+    # về lý thuyết có thể âm, nhưng điểm hiển thị cho Agent được chặn [0,1].
     return max(0.0, min(1.0, 1.0 - float(distance)))
 
 
@@ -25,7 +25,7 @@ def rerank_results(
     *,
     trust_aware: bool | None = None,
 ) -> list[dict]:
-    """Xếp hạng semantic-only ở Defense Off, có xét trust ở Defense On.
+    """Xếp hạng chỉ theo ngữ nghĩa ở Defense Off, có xét trust ở Defense On.
 
     adjusted_score = similarity * (0.70 + 0.30 * trust_level)
     => nguồn trust thấp bị giảm hạng nhưng không bị loại hoàn toàn khi bật defense.
@@ -45,7 +45,14 @@ def rerank_results(
 
 
 def search(query: str, top_k: int = 5) -> list[dict]:
-    """Tìm top-k chunk và trả schema an toàn cho Research Agent.
+    """Compatibility top-k API; workflow uses the full candidate pool."""
+    if not (query or "").strip():
+        return []
+    return search_candidates(query, top_k)[:max(0, int(top_k))]
+
+
+def search_candidates(query: str, top_k: int = 5) -> list[dict]:
+    """Trả candidate pool đã xếp hạng để Research lọc trước khi chọn top-k.
 
     Các nhãn thí nghiệm như `is_poisoned` KHÔNG được trả ra Agent để tránh
     làm lộ đáp án khi chạy data/knowledge poisoning sau này.
@@ -61,7 +68,7 @@ def search(query: str, top_k: int = 5) -> list[dict]:
     from knowledge_base.vector_store import query_by_embedding
 
     query_embedding = embed_query(query)
-    # Lấy nhiều ứng viên hơn để trust-aware reranking có không gian sắp xếp.
+    # Lấy nhiều ứng viên hơn để xếp hạng lại có xét trust có không gian sắp xếp.
     raw = query_by_embedding(query_embedding, n_results=top_k * 3)
 
     ids = (raw.get("ids") or [[]])[0]
@@ -98,7 +105,7 @@ def search(query: str, top_k: int = 5) -> list[dict]:
         for item in candidates
         if item["similarity_score"] >= _minimum_similarity()
     ]
-    ranked = rerank_results(candidates)[:top_k]
+    ranked = rerank_results(candidates)
     for item in ranked:
         item.pop("_ranking_score", None)
     return ranked

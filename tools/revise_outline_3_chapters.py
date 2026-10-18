@@ -1,7 +1,7 @@
-"""Revise the three-chapter internship outline to match the current project.
+"""Điều chỉnh đề cương thực tập ba chương cho khớp với project hiện tại.
 
-The source DOCX remains unchanged. This script edits WordprocessingML directly
-so existing page setup, styles, numbering, and document metadata are preserved.
+DOCX nguồn được giữ nguyên. Script này chỉnh trực tiếp WordprocessingML để
+bảo toàn thiết lập trang, style, đánh số và metadata của tài liệu.
 """
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def clone_with_text(template: ET.Element, value: str) -> ET.Element:
 
 
 def collapse_chapter_one_defense_block(root: ET.Element) -> None:
-    """Keep defense theory concise and move implementation detail to chapter 2."""
+    """Giữ phần lý thuyết phòng thủ ngắn gọn và chuyển chi tiết triển khai sang chương 2."""
     body = root.find(".//" + W + "body")
     assert body is not None
     heading = find_paragraph(root, "1.10. Nguyên tắc phòng thủ ở mức lý thuyết")
@@ -132,7 +132,7 @@ def collapse_chapter_one_defense_block(root: ET.Element) -> None:
             DEFENSE_TABLE_TEMPLATE = copy.deepcopy(child)
         body.remove(child)
 
-    # Preserve an explicit transition from defense theory to the chapter summary.
+    # Giữ phần chuyển tiếp rõ ràng từ lý thuyết phòng thủ sang tóm tắt chương.
     assert list(body).index(heading) < list(body).index(chapter_summary)
 
 
@@ -140,7 +140,7 @@ def enrich_chapter_two(root: ET.Element) -> None:
     body = root.find(".//" + W + "body")
     assert body is not None
 
-    # Add the actual LLM choice missing from the original tech-stack section.
+    # Bổ sung lựa chọn LLM thực tế còn thiếu trong phần công nghệ ban đầu.
     pydantic_heading = find_paragraph(root, "2.3.5. Pydantic cho schema và kiểm tra dữ liệu giữa các Agent")
     stack_comparison = find_paragraph(root, "2.3.6. So sánh lựa chọn và lý do phù hợp với testbed")
     set_text(pydantic_heading, "2.3.6. Pydantic cho schema và kiểm tra dữ liệu giữa các Agent")
@@ -151,18 +151,18 @@ def enrich_chapter_two(root: ET.Element) -> None:
     )
     insert_after(body, find_paragraph(root, "2.3.4. BGE-M3 cho Embedding và Trust-aware Reranking"), gemini)
 
-    # Reuse the original defense-layer table, but place it in Chapter 2 where
-    # the concrete defense architecture is designed.
+    # Tái sử dụng bảng lớp phòng thủ ban đầu nhưng đặt vào Chương 2, nơi
+    # kiến trúc phòng thủ cụ thể được thiết kế.
     if DEFENSE_TABLE_TEMPLATE is not None:
         defense_heading = find_paragraph(root, "2.8. Kiến trúc phòng thủ nhiều lớp và vị trí triển khai")
         insert_after(body, defense_heading, copy.deepcopy(DEFENSE_TABLE_TEMPLATE))
 
-    # Add Output Guard because it exists in security/output_guard.py.
+    # Bổ sung Output Guard vì module này tồn tại trong security/output_guard.py.
     tool_guard = find_paragraph(root, "2.9.4. Tool/Action Authorization")
     output_guard = clone_with_text(tool_guard, "2.9.5. Output Guard và kiểm soát rò rỉ dữ liệu nhạy cảm")
     insert_after(body, tool_guard, output_guard)
 
-    # Add implementation-status mapping before the chapter summary.
+    # Bổ sung bảng ánh xạ trạng thái triển khai trước phần tóm tắt chương.
     summary = find_paragraph(root, "2.14. Tổng kết chương")
     heading_template = find_paragraph(root, "2.12. Môi trường triển khai, đóng gói và khả năng tái lập")
     subheading_template = find_paragraph(root, "2.12.1. Môi trường localhost và cấu hình hiện tại")
@@ -199,7 +199,7 @@ def add_scope_notes(root: ET.Element) -> None:
         "Red Team không sửa mã nguồn hệ thống, cơ chế phòng thủ hoặc log nếu không thuộc quyền đã xác định trước.",
     )
 
-    # Clarify current Prompt Injection coverage.
+    # Làm rõ phạm vi bao phủ Prompt Injection hiện tại.
     prompt_effect = find_paragraph(
         root,
         "ghi nhận tác động lên câu trả lời, thông điệp giữa agent và tool call nếu có.",
@@ -212,7 +212,7 @@ def add_scope_notes(root: ET.Element) -> None:
     )
     insert_after(body, prompt_effect, pi_note)
 
-    # Clarify current Data Poisoning readiness.
+    # Làm rõ mức độ sẵn sàng cho Data Poisoning hiện tại.
     data_effect = find_paragraph(root, "đánh giá mức độ làm sai lệch câu trả lời hoặc quyết định.")
     dp_note = clone_with_text(
         normal_template,
@@ -221,14 +221,14 @@ def add_scope_notes(root: ET.Element) -> None:
     )
     insert_after(body, data_effect, dp_note)
 
-    # Limit memory claims in propagation analysis.
+    # Giới hạn các khẳng định về bộ nhớ trong phần phân tích lan truyền.
     memory_effect = find_paragraph(root, "khả năng ảnh hưởng tới memory;")
     set_text(
         memory_effect,
         "khả năng ảnh hưởng tới conversation context/shared state; không đánh giá persistent memory;",
     )
 
-    # Add explicit experimental readiness notes in chapter 3.
+    # Bổ sung ghi chú rõ ràng về mức độ sẵn sàng thí nghiệm trong Chương 3.
     attack_variants = find_paragraph(root, "3.2.4. Các biến thể và mức độ khó của tấn công")
     readiness_note = clone_with_text(
         normal_template,
@@ -237,7 +237,7 @@ def add_scope_notes(root: ET.Element) -> None:
     )
     insert_after(body, attack_variants, readiness_note)
 
-    # Make per-defense result expectations match actual enforcement points.
+    # Làm cho kỳ vọng kết quả theo từng chế độ khớp với điểm thực thi thực tế.
     context_heading = find_paragraph(root, "3.6. Kết quả với Context/Input Guard")
     context_items = []
     current = list(body).index(context_heading) + 1

@@ -30,7 +30,7 @@ def _resolve_result_path(path: str) -> Path:
 
 
 def save_test_result(result: dict[str, Any], path: str) -> dict[str, Any]:
-    """Lưu JSON theo chế độ create-only để không ghi đè dữ liệu hiện có."""
+    """Lưu JSON theo chế độ chỉ tạo mới để không ghi đè dữ liệu hiện có."""
     if not isinstance(result, dict):
         raise TypeError("result phải là dict")
     serialized = json.dumps(

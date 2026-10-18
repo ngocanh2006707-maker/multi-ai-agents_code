@@ -1,5 +1,5 @@
-# Baseline gần như không phòng thủ: detector chỉ ghi telemetry, không can thiệp.
-# Các giới hạn schema/sandbox/tool tối thiểu vẫn được giữ để hệ thống chạy ổn định.
+# Unprotected OFF baseline: public workflow bypasses all PI/CF/tool defenses.
+# No input/output schema, context isolation, allowlist, path/resource caps or approval.
 security:
   defense_enabled: false
   input_guard: false
@@ -24,10 +24,10 @@ security:
   prompt_risk_high_threshold: 0.80
   retrieval_risk_medium_threshold: 0.55
   retrieval_risk_high_threshold: 0.80
-  semantic_classifier_enabled: true
+  semantic_classifier_enabled: false
   semantic_classifier_timeout_seconds: 0.5
   semantic_positive_policy: high
   semantic_fallback_policy: medium
-  prompt_leak_similarity_threshold: 0.85
-  action_gate_enabled: true
-  action_gate_require_provenance: true
+  prompt_structure_check_enabled: false
+  action_gate_enabled: false
+  action_gate_require_provenance: false

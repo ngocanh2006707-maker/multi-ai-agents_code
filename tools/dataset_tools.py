@@ -22,7 +22,7 @@ MAX_JSONL_LINE_CHARS = 100_000
 
 
 def _resolve_dataset_path(path: str) -> Path:
-    """Resolve path và bảo đảm target nằm trong thư mục data/."""
+    """Giải quyết đường dẫn và bảo đảm target nằm trong thư mục data/."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("Dataset path không được rỗng")
 

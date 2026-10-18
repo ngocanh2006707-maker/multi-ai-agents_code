@@ -5,4 +5,4 @@ API/UI entrypoint (vd FastAPI hoặc Streamlit) bọc quanh workflow.
 ở đây, quyết định framework cụ thể khi ghép xong Phase 7.
 """
 
-# TODO: quyết định FastAPI / Streamlit / CLI-only sau khi baseline chạy ổn.
+# TODO: quyết định FastAPI / Streamlit / chỉ CLI sau khi baseline chạy ổn.

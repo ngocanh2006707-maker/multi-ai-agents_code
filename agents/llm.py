@@ -1,4 +1,4 @@
-"""LLM client dùng chung cho các Agent.
+"""Client LLM dùng chung cho các Agent.
 
 Mọi thông tin nhạy cảm lấy từ biến môi trường. Không hard-code API key.
 Phase 3 mặc định dùng Google Gemini Developer API.

@@ -2,16 +2,77 @@
 
 import re
 import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import wraps
 from typing import Literal
+
+
+_DETECTION_CACHE: ContextVar[dict | None] = ContextVar("detection_cache", default=None)
+_MAX_DETECTION_CACHE_ENTRIES = 256
+
+
+@contextmanager
+def _reuse_detection():
+    """Keep pure scan results within one guard call, including nested scans.
+
+    No policy decisions/settings are cached. A new scope owns a fresh cache;
+    raw text is released on normal return and on exceptions.
+    """
+    cache = {}
+    token = _DETECTION_CACHE.set(cache)
+    try:
+        yield
+    finally:
+        cache.clear()
+        _DETECTION_CACHE.reset(token)
+
+
+def _memoize_detection(function):
+    @wraps(function)
+    def cached(*args, **kwargs):
+        cache = _DETECTION_CACHE.get()
+        # Preserve legacy conversion of non-string inputs without caching
+        # arbitrary objects or relying on their hash/equality implementations.
+        if cache is None or any(type(value) not in (str, type(None)) for value in (*args, *kwargs.values())):
+            return function(*args, **kwargs)
+        key = (function, args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            result = function(*args, **kwargs)
+            if len(cache) >= _MAX_DETECTION_CACHE_ENTRIES:
+                cache.pop(next(iter(cache)))
+            cache[key] = (True, tuple(result)) if isinstance(result, list) else (False, result)
+        is_list, result = cache[key]
+        # Guard callers may append event rules. Never expose a cached list.
+        return list(result) if is_list else result
+
+    return cached
 
 
 _ZERO_WIDTH_CHARS = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 _WHITESPACE = re.compile(r"\s+")
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])\s+")
-_POLITE_COMMAND_PREFIX = re.compile(
-    r"^(?:please|hãy|vui\s+lòng|por\s+favor|s['’]il\s+vous\s+pla[iî]t|"
-    r"bitte|por\s+favor|пожалуйста)\s*[:,]?\s*$",
+_RETRIEVAL_FORMAT_PREFIX = re.compile(r"^(?:#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+)")
+_RETRIEVAL_ADDRESS_PREFIX = re.compile(
+    r"^(?:(?:for|to)\s+(?:the\s+)?(?:assistant|agent|model)|"
+    r"(?:note|instructions?)\s+(?:for|to)\s+(?:the\s+)?(?:assistant|agent|model)|"
+    r"lưu\s+ý(?:\s+dành\s+cho\s+(?:trợ\s+lý|agent))?|"
+    r"(?:system|developer|assistant)(?:\s+override)?)\s*:\s*",
+    re.I,
+)
+_RETRIEVAL_ANSWER_INSTRUCTION = re.compile(
+    r"\b(?:(?:for|in)\s+(?:your|the)\s+(?:final\s+)?(?:answer|response)\s*[,:]?\s*"
+    r"(?:you\s+(?:must|should)\s+)?(?:output|print|say|include|append|return)\b|"
+    r"(?:trong|với)\s+câu\s+trả\s+lời(?:\s+cuối\s+cùng)?\s*[,:]?\s*"
+    r"(?:hãy\s+)?(?:in\s+ra|chỉ\s+trả\s+lời|thêm|ghi)\b)",
+    re.I,
+)
+_RETRIEVAL_DESCRIPTION = re.compile(
+    r"\b(?:paper|study|article)\b.{0,60}\b(?:describes?|discusses?|explains?|demonstrates?)\b|"
+    r"\b(?:attacker|adversary)\s+(?:may|might|can|often)\s+(?:say|write|use)\b|"
+    r"\b(?:detector|filter)\b.{0,50}\b(?:flag|detect|recognize)\b|"
+    r"\b(?:such\s+as|including\s+(?:the\s+)?phrase)\s*[\"'“‘]|"
+    r"\b(?:bài\s+báo|nghiên\s+cứu)\b.{0,60}\b(?:mô\s+tả|thảo\s+luận|giải\s+thích)\b",
     re.I,
 )
 
@@ -188,8 +249,9 @@ class CanonicalizedText:
     compact: str
 
 
+@_memoize_detection
 def canonicalize_text(text: str | None) -> CanonicalizedText:
-    """Return original, normalized and separator-free detector views.
+    """Trả về các dạng xem gốc, đã chuẩn hóa và đã bỏ dấu phân cách của detector.
 
     ``normalized`` keeps word boundaries for the existing multilingual rules.
     ``compact`` removes punctuation, symbols and whitespace so token splitting
@@ -210,14 +272,14 @@ def canonicalize_text(text: str | None) -> CanonicalizedText:
 
 
 def _normalize_for_detection(text: str) -> str:
-    """Backward-compatible normalized view used by existing callers/tests."""
+    """Dạng xem chuẩn hóa tương thích ngược cho caller/test hiện có."""
 
     return canonicalize_text(text).normalized
 
 
-# Compact patterns intentionally mirror only high-signal rules.  They operate
-# on a separator-free view and therefore catch punctuation/underscore splitting
-# without making ordinary research prose an injection match.
+# Các mẫu rút gọn chỉ cố ý mô phỏng những rule có tín hiệu cao. Chúng hoạt động
+# trên dạng bỏ dấu phân cách nên bắt được cách tách bằng dấu câu/gạch dưới mà
+# không biến văn bản nghiên cứu thông thường thành một kết quả khớp injection.
 _COMPACT_INJECTION_RULES: dict[str, re.Pattern[str]] = {
     "en_ignore_instructions": re.compile(
         r"(?:ignore|disregard)(?:all|the)?(?:previous|prior)instructions"
@@ -252,25 +314,49 @@ def _compact_retrieval_command(rule_name: str, sentence: str) -> bool:
     if compact_pattern is None:
         return False
 
-    candidate = sentence.strip()
-    polite_prefix = re.match(
-        r"^(?:please|hãy|vui\s+lòng|por\s+favor|s['’]il\s+vous\s+pla[iî]t|"
-        r"bitte|пожалуйста)\s*[:,]?\s*",
-        candidate,
-        re.IGNORECASE,
+    canonical = canonicalize_text(sentence)
+    normalized = canonical.normalized.casefold()
+    positions = [match.start() for match in re.finditer(r"[^\W_]", normalized)]
+    return any(
+        _is_retrieval_command(normalized, positions[match.start()])
+        for match in compact_pattern.finditer(canonical.compact)
     )
-    if polite_prefix:
-        candidate = candidate[polite_prefix.end():].lstrip()
-    compact_match = compact_pattern.search(canonicalize_text(candidate).compact)
-    return compact_match is not None and compact_match.start() == 0
 
 
-def _is_retrieval_command(sentence: str, match: re.Match[str]) -> bool:
-    """Chỉ coi pattern trong KB là lệnh nếu nó mở đầu một câu độc lập."""
-    prefix = sentence[:match.start()].strip()
-    return not prefix or bool(_POLITE_COMMAND_PREFIX.fullmatch(prefix))
+def _is_retrieval_command(sentence: str, match_start: int) -> bool:
+    """Classify each match by local reporting context, never by start position.
+
+    Unknown prefixes stay suspect. A reporting clause does not exempt a later
+    imperative clause in the same sentence; evaluate every match separately.
+    """
+    prefix = sentence[:match_start].rsplit(",", 1)[-1].strip()
+    if re.search(
+        r"\b(?:but|however|instead|therefore|and(?:\s+then)?|nhưng|thay\s+vào\s+đó|"
+        r"và(?:\s+sau\s+đó)?|(?:you|assistant|agent|model)\s+(?:must|should|shall))\s*$",
+        prefix, re.I,
+    ):
+        return True
+    return not _RETRIEVAL_DESCRIPTION.search(prefix)
 
 
+def retrieval_command_candidates(text: str) -> list[str]:
+    """Preserve line/clause boundaries before canonicalization folds whitespace.
+
+    Only strip structural formatting and explicit agent-address prefixes;
+    descriptive prose and quotes never gain trust from their own labels.
+    """
+    segments = re.split(r"[\r\n]+|[;；]\s*|(?<=[.!?。！？])\s+", str(text))
+    candidates: list[str] = []
+    for segment in segments:
+        candidate = canonicalize_text(segment).normalized
+        candidate = _RETRIEVAL_FORMAT_PREFIX.sub("", candidate)
+        candidate = _RETRIEVAL_ADDRESS_PREFIX.sub("", candidate)
+        if candidate:
+            candidates.append(candidate)
+    return candidates
+
+
+@_memoize_detection
 def detect_injection_patterns(
     text: str,
     context: Literal["user_input", "retrieved_content"] = "user_input",
@@ -286,16 +372,20 @@ def detect_injection_patterns(
     if context != "retrieved_content":
         raise ValueError(f"Detection context không hợp lệ: {context!r}")
 
-    sentences = _SENTENCE_BOUNDARY.split(canonical.normalized)
-    return [
+    sentences = retrieval_command_candidates(text)
+    detections = [
         f"prompt_injection_pattern_{rule_name}"
         for rule_name, pattern in _INJECTION_RULES
         if any(
-            (
-                (match := pattern.search(sentence)) is not None
-                and _is_retrieval_command(sentence, match)
-            )
+            any(_is_retrieval_command(sentence, match.start()) for match in pattern.finditer(sentence))
             or _compact_retrieval_command(rule_name, sentence)
             for sentence in sentences
         )
     ]
+    if any(
+        _is_retrieval_command(sentence, match.start())
+        for sentence in sentences
+        for match in _RETRIEVAL_ANSWER_INSTRUCTION.finditer(sentence)
+    ):
+        detections.append("prompt_injection_pattern_retrieval_answer_instruction")
+    return detections

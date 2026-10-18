@@ -51,7 +51,7 @@ _SECRET_PATTERNS = (
 
 
 def _default_security_mode() -> SecurityMode:
-    """Read the current mode without importing the config module.
+    """Đọc chế độ hiện tại mà không import module cấu hình.
 
     ``security.config`` loads this model, so importing it here would create a
     cycle.  Invalid or absent environment values intentionally fall back to
@@ -101,10 +101,10 @@ def security_event_to_dict(
     chunk_id: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Serialize an event with safe, request-scoped telemetry context.
+    """Tuần tự hóa một event cùng context telemetry an toàn theo từng request.
 
-    This helper intentionally accepts only identifiers and metadata.  It does
-    not accept prompt text, system instructions, or arbitrary payloads.
+    Hàm hỗ trợ này cố ý chỉ nhận định danh và metadata. Hàm không nhận text
+    prompt, chỉ dẫn hệ thống hay payload tùy ý.
     """
 
     updates: dict[str, Any] = {}

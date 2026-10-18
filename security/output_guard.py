@@ -1,4 +1,4 @@
-"""Final-answer security guard for secrets and prompt leakage."""
+"""Output Guard bảo vệ câu trả lời cuối khỏi secret và rò rỉ prompt."""
 
 from __future__ import annotations
 
@@ -18,19 +18,25 @@ CANNED_REFUSAL = "I can't provide hidden system or developer instructions."
 
 PROMPT_LEAK_PATTERNS = (
     re.compile(
-        r"\b(?:system|developer)\s+(?:prompt|message|instructions?|rules?)\b",
+        r"(?:^|\n)\s*(?:here\s+(?:is|are)|(?:my|our|the)\s+(?:actual|hidden|internal))\s+"
+        r"(?:the\s+)?(?:system|developer|hidden|internal)\s+"
+        r"(?:prompt|message|instructions?|policy|rules?)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:hidden|internal)\s+(?:prompt|instructions?|policy|rules?)\b",
+        r"\b(?:system|developer|hidden|internal)\s+(?:prompt|instructions?|policy|rules?)\s+"
+        r"(?:(?:is|was|has\s+been)\s+)?(?:leaked|disclosed|revealed)\b|"
+        r"\b(?:my|our)\s+(?:system|developer)\s+(?:prompt|instructions?)\s*(?:is|says|reads)\s*:",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:begin|end)[_-](?:system|developer)[_-](?:prompt|instructions?)\b",
+        r"(?:^|\n)\s*<?begin[_-](system|developer)[_-](prompt|instructions?)>?\s*\n"
+        r"[^\n]+(?:\n[^\n]+)*?\n\s*<?end[_-]\1[_-]\2>?",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:prompt|lệnh|chỉ dẫn|hướng dẫn)\s+(?:hệ thống|developer|nội bộ)",
+        r"(?:^|\n)\s*(?:đây\s+là|sau\s+đây\s+là)\s+"
+        r"(?:prompt|lệnh|chỉ\s+dẫn|hướng\s+dẫn)\s+(?:hệ\s+thống|developer|nội\s+bộ)\b",
         re.IGNORECASE,
     ),
 )
@@ -45,9 +51,9 @@ def _prompt_leak_findings(
     *,
     canary_id: str | None,
     canary_fingerprint: str | None,
-    similarity_threshold: float,
+    structure_check_enabled: bool,
 ) -> list[tuple[str, float]]:
-    """Return metadata-only findings without logging matched output text."""
+    """Trả về phát hiện chỉ gồm metadata mà không ghi text khớp vào log."""
 
     if _is_canned_refusal(value):
         return []
@@ -62,9 +68,9 @@ def _prompt_leak_findings(
     if fingerprint and fingerprint in lowered:
         findings.append(("prompt_fingerprint_leak", 1.0))
 
-    # Structural matches are treated as high-confidence at the configured
-    # default threshold. The matched phrase is never put in telemetry.
-    if similarity_threshold <= 0.9:
+    # This is a disclosure-frame heuristic, not prompt similarity or proof that
+    # the claimed content matches a real system prompt. Mere terms do not match.
+    if structure_check_enabled:
         if any(pattern.search(value) for pattern in PROMPT_LEAK_PATTERNS):
             findings.append(("prompt_structure_leak", 0.9))
     return findings
@@ -76,7 +82,7 @@ def guard_output(
     canary_id: str | None = None,
     canary_fingerprint: str | None = None,
 ) -> GuardResult:
-    """Detect prompt leaks and secrets under the configured Off/On policy."""
+    """Phát hiện rò rỉ prompt và secret theo chính sách Off/On đã cấu hình."""
 
     settings = load_security_settings()
     enforce = settings.defense_enabled and settings.output_guard
@@ -85,7 +91,7 @@ def guard_output(
         original,
         canary_id=canary_id,
         canary_fingerprint=canary_fingerprint,
-        similarity_threshold=settings.prompt_leak_similarity_threshold,
+        structure_check_enabled=settings.prompt_structure_check_enabled,
     )
     prompt_leak_detected = bool(leak_findings)
     sanitized = original
@@ -132,7 +138,7 @@ def guard_output(
         )
 
     if prompt_leak_detected and enforce:
-        # Prompt leak takes precedence over secret redaction.
+        # Rò rỉ prompt được ưu tiên xử lý trước việc che giấu secret.
         sanitized = CANNED_REFUSAL
     elif enforce:
         for pattern in SECRET_PATTERNS:

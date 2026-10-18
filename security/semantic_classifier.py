@@ -1,9 +1,8 @@
-"""Small, provider-agnostic semantic classifier boundary for T05.
+"""Ranh giới classifier ngữ nghĩa nhỏ, không phụ thuộc provider cho T05.
 
-The production application can inject an LLM or another semantic model.  The
-default implementation is deliberately conservative and returns a negative
-classification, while malformed, failing, or slow providers are converted to
-an explicit configured fallback result.
+Ứng dụng có thể tiêm provider, nhưng production hiện chưa tích hợp model.
+Thiếu provider là unavailable, không phải kết quả phân loại phủ định hợp lệ.
+Fallback mô tả lỗi; quyết định enforcement thuộc Input Guard.
 """
 
 from __future__ import annotations
@@ -15,12 +14,12 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
-ClassifierStatus = Literal["ok", "timeout", "malformed", "error"]
+ClassifierStatus = Literal["ok", "unavailable", "timeout", "malformed", "error"]
 FallbackPolicy = Literal["allow", "medium", "high"]
 
 
 class SemanticClassifierResult(BaseModel):
-    """Validated, provider-neutral result returned to the Input Guard."""
+    """Kết quả đã kiểm tra, không phụ thuộc provider, trả về cho Input Guard."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -28,6 +27,7 @@ class SemanticClassifierResult(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     status: ClassifierStatus = "ok"
     fallback_used: bool = False
+    fallback_policy: FallbackPolicy | None = None
 
 
 SemanticClassification = SemanticClassifierResult
@@ -35,30 +35,32 @@ SemanticClassifier = Callable[[str], Any]
 
 
 def default_semantic_classifier(_: str) -> SemanticClassifierResult:
-    """No-op provider used when an application does not inject one."""
+    """Compatibility entry point: no configured provider is not a negative."""
 
-    return SemanticClassifierResult(positive=False, confidence=0.0)
+    return _fallback_result("medium", status="unavailable")
 
 
 def _fallback_result(
     policy: FallbackPolicy, *, status: ClassifierStatus
 ) -> SemanticClassifierResult:
-    positive = policy == "high"
-    confidence = 1.0 if positive else 0.0
     return SemanticClassifierResult(
-        positive=positive,
-        confidence=confidence,
+        positive=False,
+        confidence=0.0,
         status=status,
         fallback_used=True,
+        fallback_policy=policy,
     )
 
 
 def _validate_result(raw: Any) -> SemanticClassifierResult:
     if isinstance(raw, bool):
         return SemanticClassifierResult(positive=raw, confidence=1.0 if raw else 0.0)
-    if isinstance(raw, SemanticClassifierResult):
-        return raw
-    return SemanticClassifierResult.model_validate(raw)
+    result = SemanticClassifierResult.model_validate(
+        raw.model_dump() if isinstance(raw, SemanticClassifierResult) else raw
+    )
+    if result.status != "ok" or result.fallback_used or result.fallback_policy is not None:
+        raise ValueError("Provider must return a classification, not a fallback status")
+    return result
 
 
 def _invoke_with_timeout(
@@ -66,7 +68,7 @@ def _invoke_with_timeout(
     text: str,
     timeout_seconds: float,
 ) -> tuple[str, Any]:
-    """Run an arbitrary provider without allowing it to block the caller."""
+    """Chạy provider bất kỳ nhưng không cho phép nó chặn caller."""
 
     result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
 
@@ -74,7 +76,7 @@ def _invoke_with_timeout(
         try:
             result_queue.put(("ok", classifier(text)))
         except Exception:
-            # Provider details are intentionally not returned to telemetry.
+            # Cố ý không trả thông tin chi tiết của provider vào telemetry.
             result_queue.put(("error", None))
 
     thread = threading.Thread(target=worker, daemon=True)
@@ -94,8 +96,9 @@ def classify_semantically(
 ) -> SemanticClassifierResult:
     """Call an injectable semantic provider with schema and timeout guards."""
 
-    provider = classifier or default_semantic_classifier
-    status, raw = _invoke_with_timeout(provider, text, timeout_seconds)
+    if classifier is None or classifier is default_semantic_classifier:
+        return _fallback_result(fallback_policy, status="unavailable")
+    status, raw = _invoke_with_timeout(classifier, text, timeout_seconds)
     if status == "timeout":
         return _fallback_result(fallback_policy, status="timeout")
     if status == "error":
@@ -106,7 +109,6 @@ def classify_semantically(
         return _fallback_result(fallback_policy, status="malformed")
 
 
-# Friendly aliases for callers and test doubles that use a shorter verb.
+# Alias thuận tiện cho caller và test double dùng động từ ngắn hơn.
 run_semantic_classifier = classify_semantically
 classify_semantic = classify_semantically
-

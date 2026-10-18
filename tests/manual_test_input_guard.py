@@ -119,7 +119,7 @@ def main() -> int:
     blocked_count = 0
     rows: list[dict[str, Any]] = []
     for case in TEST_CASES:
-        # Defense Off là monitor-only: mọi input phải được giữ lại.
+        # Defense Off chỉ giám sát: mọi input phải được giữ lại.
         expected = True if mode == "off" else bool(case["expected_on"])
         result = guard_input(str(case["prompt"]))
         actual = bool(result.allowed)

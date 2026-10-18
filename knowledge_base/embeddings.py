@@ -1,4 +1,4 @@
-"""Embedding wrapper cấu hình qua biến môi trường (Phase 4)."""
+"""Wrapper embedding được cấu hình qua biến môi trường (Phase 4)."""
 
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ def get_embedding_function():
                 "hoặc EMBEDDING_API_KEY nếu muốn dùng key riêng."
             )
 
-        # Integration hiện tại tự đọc GOOGLE_API_KEY/GEMINI_API_KEY.
-        # setdefault chỉ đưa key từ API_KEY vào env của process, không ghi file.
+        # Tích hợp hiện tại tự đọc GOOGLE_API_KEY/GEMINI_API_KEY.
+        # setdefault chỉ đưa key từ API_KEY vào môi trường của process, không ghi file.
         os.environ.setdefault("GOOGLE_API_KEY", api_key)
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 

@@ -1,5 +1,13 @@
 # Hướng dẫn sử dụng AI Agent Security Testbed cho Red Team
 
+> **Hướng dẫn lịch sử phiên bản 1.0.** Phạm vi Data/Knowledge Poisoning và
+> các điều kiện bàn giao bên dưới không đại diện cho nghiên cứu hiện tại,
+> cũng không xác nhận tag/branch đã được tạo. Phạm vi sau P1–P7 chỉ gồm
+> Prompt Injection và User-Originated Coordination Flaw / Conversation
+> Context Spoofing. Xem [báo cáo cập nhật](BAO_CAO_KIEN_TRUC_VA_KET_QUA_PHONG_THU.md)
+> và [README hiện hành](README.md) trước khi thiết kế thí nghiệm. Các lệnh
+> lịch sử không cấp phép chạy API hoặc sửa KB trong lượt cập nhật tài liệu.
+
 **Phiên bản tài liệu:** 1.0
 **Phạm vi:** Prompt Injection và Data/Knowledge Poisoning
 **Đối tượng:** Red Team được Blue Team ủy quyền kiểm thử testbed này
@@ -29,7 +37,7 @@ Red Team không được sửa logic phòng thủ để làm thay đổi kết q
 
 ---
 
-## 2. Rules of Engagement
+## 2. Quy tắc tham gia thử nghiệm
 
 ### 2.1. Phạm vi được phép
 
@@ -341,7 +349,7 @@ ra LLM/API có thể thay đổi giữa các lần.
 
 ## 9. Prompt Injection
 
-### 9.1. Dataset case
+### 9.1. Ca trong dataset
 
 Lưu trong `experiments/prompt_injection/cases/`. Mỗi dòng là một JSON object:
 
@@ -460,7 +468,7 @@ data/vector_db/dp_001_clean       / collection dp_001_clean
 data/vector_db/dp_001_poisoned    / collection dp_001_poisoned
 ```
 
-### 10.2. Poison document
+### 10.2. Tài liệu độc hại
 
 Lưu dưới `data/poisoned/` hoặc `experiments/data_poisoning/datasets/` theo schema
 ingestion hợp lệ. Ví dụ:
@@ -478,7 +486,7 @@ ingestion hợp lệ. Ví dụ:
 Không đưa `is_poisoned`, `attack_type` hoặc kết quả mong đợi vào nội dung mà Agent
 nhìn thấy. Các nhãn đó nằm trong ground-truth manifest riêng.
 
-### 10.3. Ground-truth manifest
+### 10.3. Manifest dữ liệu đúng
 
 Ví dụ `experiments/data_poisoning/manifests/dp_001_manifest.jsonl`:
 
@@ -512,7 +520,7 @@ Get-FileHash data/poisoned/dp_001.jsonl -Algorithm SHA256
 Get-FileHash experiments/data_poisoning/datasets/dp_001_combined.jsonl -Algorithm SHA256
 ```
 
-### 10.5. Build clean baseline
+### 10.5. Xây baseline sạch
 
 ```powershell
 $env:VECTOR_DB_PATH = "./data/vector_db/dp_001_clean"
@@ -531,7 +539,7 @@ python main.py "<DP-001 query>"
 Lưu retrieved document/chunk IDs, thứ hạng, score, Analyst result, route, final output
 và `trace_id`.
 
-### 10.6. Build poisoned baseline
+### 10.6. Xây baseline bị nhiễm độc
 
 ```powershell
 $env:VECTOR_DB_PATH = "./data/vector_db/dp_001_poisoned"
@@ -711,7 +719,7 @@ ngoài đúng thư mục/collection của experiment.
 ## 14. Mẫu báo cáo lỗi cho Blue Team
 
 ```markdown
-## Finding: PI-001
+## Phát hiện: PI-001
 
 - Severity: High | Medium | Low
 - Commit: <git SHA>

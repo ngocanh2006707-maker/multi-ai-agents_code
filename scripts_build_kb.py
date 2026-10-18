@@ -1,4 +1,4 @@
-"""Build Knowledge Base Phase 4.
+"""Xây dựng Knowledge Base Phase 4.
 
 Chạy mặc định:
     python scripts_build_kb.py --reset
@@ -27,7 +27,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 def main():
-    # Tránh làm thay đổi environment chỉ vì module được import bởi test/tool.
+    # Tránh làm thay đổi môi trường chỉ vì module được import bởi test/tool.
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -93,8 +93,8 @@ def main():
     print("Đang tạo embeddings bằng model đã cấu hình trong .env ...")
     vectors = embed_documents([chunk["content"] for chunk in chunks])
 
-    # Chỉ xóa collection cũ sau khi embeddings đã tạo thành công. Nếu provider
-    # lỗi, hết quota hoặc local model không load được, KB hiện tại vẫn được giữ.
+    # Chỉ xóa collection cũ sau khi embedding đã tạo thành công. Nếu provider
+    # lỗi, hết quota hoặc model local không tải được, KB hiện tại vẫn được giữ.
     if args.reset:
         reset_vector_store()
 
