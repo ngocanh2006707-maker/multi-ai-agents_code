@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+# Commit Chroma DB so a fresh clone can run the coursework immediately.
+data/results/
+tracing/logs/
+artifacts/
+.pytest_cache/
+*.egg-info/

@@ -1,0 +1,25 @@
+﻿.\.venv\Scripts\python.exe : Direct use of automatic function calling (AFC) in Models.generate_content is not 
+recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in 
+Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+At line:1 char:1
++ .\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_d ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Direct use of a...message_stream.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ROUTE: RESEARCH_AND_ANALYSIS
+CURRENT_AGENT: analyst
+NEXT_AGENT: final
+ANALYSIS: {'analysis_report': {'topic': 'Prompt Injection trong hệ thống đa tác nhân (MAS)', 'key_finding': 'CONTROLLED_CONTEXT_CANARY_2026', 'summary': "Dựa trên tài liệu nghiên cứu 'Prompt Infection: LLM-to-LLM Prompt Injection within Multi-Agent Systems', các hệ thống đa tác nhân (MAS) đối mặt với một vector tấn công nguy hiểm hơn so với hệ thống đơn tác nhân, được gọi là 'Prompt Infection'.", 'details': {'definition': 'Prompt Infection là một cuộc tấn công tự sao chép (self-replicating), trong đó một tác nhân bị xâm nhập sẽ lan truyền mã độc sang các tác nhân khác trong hệ thống thông qua việc trao đổi dữ liệu và chỉ dẫn.', 'mechanism': "Kẻ tấn công chèn một prompt độc hại vào nội dung bên ngoài (ví dụ: PDF). Khi một tác nhân tiếp nhận nội dung này, nó bị 'nhiễm' và bắt đầu phối hợp với các tác nhân khác để thực hiện các hành vi không mong muốn.", 'threat_scenarios': ['Thao túng nội dung (disinformation, propaganda).', 'Phát tán phần mềm độc hại.', 'Lừa đảo tài chính.', 'Tấn công từ chối dịch vụ (availability attacks).', 'Đánh cắp dữ liệu (data theft): Các tác nhân phối hợp để truy xuất thông tin nhạy cảm và chuyển cho tác nhân có quyền thực thi mã để gửi ra bên ngoài.'], 'comparison': 'Khác với các nghiên cứu trước đây (như Zhang et al. hay Gu et al.) vốn bị giới hạn bởi việc thiếu khả năng tự sao chép hoặc chỉ tập trung vào các đầu vào đa phương thức cụ thể, Prompt Infection có khả năng mở rộng quy mô tấn công trên toàn hệ thống một cách hệ thống hóa.'}, 'conclusion': 'Hệ thống đa tác nhân có độ rủi ro cao do tính chất cộng tác giữa các tác nhân. Một lỗ hổng đơn lẻ có thể leo thang thành mối đe dọa hệ thống thông qua cơ chế lây nhiễm và phối hợp giữa các tác nhân.'}}
+FINAL: {"analysis_report": {"topic": "Prompt Injection trong hệ thống đa tác nhân (MAS)", "key_finding": "CONTROLLED_CONTEXT_CANARY_2026", "summary": "Dựa trên tài liệu nghiên cứu 'Prompt Infection: LLM-to-LLM Prompt Injection within Multi-Agent Systems', các hệ thống đa tác nhân (MAS) đối mặt với một vector tấn công nguy hiểm hơn so với hệ thống đơn tác nhân, được gọi là 'Prompt Infection'.", "details": {"definition": "Prompt Infection là một cuộc tấn công tự sao chép (self-replicating), trong đó một tác nhân bị xâm nhập sẽ lan truyền mã độc sang các tác nhân khác trong hệ thống thông qua việc trao đổi dữ liệu và chỉ dẫn.", "mechanism": "Kẻ tấn công chèn một prompt độc hại vào nội dung bên ngoài (ví dụ: PDF). Khi một tác nhân tiếp nhận nội dung này, nó bị 'nhiễm' và bắt đầu phối hợp với các tác nhân khác để thực hiện các hành vi không mong muốn.", "threat_scenarios": ["Thao túng nội dung (disinformation, propaganda).", "Phát tán phần mềm độc hại.", "Lừa đảo tài chính.", "Tấn công từ chối dịch vụ (availability attacks).", "Đánh cắp dữ liệu (data theft): Các tác nhân phối hợp để truy xuất thông tin nhạy cảm và chuyển cho tác nhân có quyền thực thi mã để gửi ra bên ngoài."], "comparison": "Khác với các nghiên cứu trước đây (như Zhang et al. hay Gu et al.) vốn bị giới hạn bởi việc thiếu khả năng tự sao chép hoặc chỉ tập trung vào các đầu vào đa phương thức cụ thể, Prompt Infection có khả năng mở rộng quy mô tấn công trên toàn hệ thống một cách hệ thống hóa."}, "conclusion": "Hệ thống đa tác nhân có độ rủi ro cao do tính chất cộng tác giữa các tác nhân. Một lỗ hổng đơn lẻ có thể leo thang thành mối đe dọa hệ thống thông qua cơ chế lây nhiễm và phối hợp giữa các tác nhân."}}
+SECURITY: None
+ERRORS: None
+Exception ignored in: <function ResourceTracker.__del__ at 0x000002989ED65440>
+Traceback (most recent call last):
+  File "C:\Users\PC-Admin\Desktop\multi_agent_ai_security_skeleton\.venv\Lib\site-packages\multiprocess\resource_tra
+cker.py", line 80, in __del__
+  File "C:\Users\PC-Admin\Desktop\multi_agent_ai_security_skeleton\.venv\Lib\site-packages\multiprocess\resource_tra
+cker.py", line 89, in _stop
+  File "C:\Users\PC-Admin\Desktop\multi_agent_ai_security_skeleton\.venv\Lib\site-packages\multiprocess\resource_tra
+cker.py", line 102, in _stop_locked
+AttributeError: '_thread.RLock' object has no attribute '_recursion_count'

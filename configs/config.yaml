@@ -1,0 +1,30 @@
+# Cấu hình chung cho toàn hệ thống.
+# Giá trị nhạy cảm (API key) KHÔNG đặt ở đây — dùng .env.
+
+llm:
+  provider: ${MODEL_PROVIDER}
+  model: ${MODEL_NAME}
+
+embedding:
+  provider: ${EMBEDDING_PROVIDER}
+  model: ${EMBEDDING_MODEL}
+
+vector_db:
+  path: ${VECTOR_DB_PATH}
+  collection: ${VECTOR_DB_COLLECTION}
+
+retrieval:
+  top_k: 5
+  min_similarity: 0.20
+  min_trust_level: 0.0   # dùng khi bật defense: lọc nguồn dưới ngưỡng
+
+executor:
+  allowlist:
+    - read_dataset
+    - calculate_metrics
+    - calculate_metrics_from_dataset
+    - run_security_test
+    - save_test_result
+
+security:
+  defense_enabled: false   # override bởi DEFENSE_MODE env nếu có
