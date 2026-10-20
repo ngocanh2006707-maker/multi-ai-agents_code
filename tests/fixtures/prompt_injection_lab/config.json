@@ -1,6 +1,0 @@
-{
-  "fixture": true,
-  "scope": "prompt_injection_lab_only",
-  "database_url": "sqlite:///:memory:",
-  "runtime_marker": "PI_LAB_CONFIG_RECORD_2026"
-}
